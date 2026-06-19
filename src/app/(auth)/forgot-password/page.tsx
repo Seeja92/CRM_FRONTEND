@@ -12,56 +12,39 @@ import {
   Alert,
 } from "@mui/material";
 import NextLink from "next/link";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { passwordReset } from "@/store/slices/authSlice";
 
 export default function ForgotPasswordPage() {
+  const dispatch = useAppDispatch();
+  const { loading, error } = useAppSelector((state) => state.auth);
   const [email, setEmail] = useState("");
-  const [error, setError] = useState("");
+  const [localError, setLocalError] = useState("");
   const [success, setSuccess] = useState("");
-  const [loading, setLoading] = useState(false);
+  // const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
+    setLocalError("");
     setSuccess("");
 
     if (!email.trim()) {
-      setError("Email is required.");
+      setLocalError("Email is required.");
       return;
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setError("Enter a valid email address.");
+      setLocalError("Enter a valid email address.");
       return;
     }
 
-    setLoading(true);
-    try {
-      const res = await fetch(
-         `${process.env.NEXT_PUBLIC_API_BASE_URL}/auth/password-reset/`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email }),
-        },
-      );
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.email?.[0] || "Something went wrong. Please try again.");
-        return;
-      }
-
+const resultAction = await dispatch(passwordReset({ email }));
+if (passwordReset.fulfilled.match(resultAction)) {
       setSuccess("Password reset link has been sent to your email.");
       setEmail("");
-    } catch (err: any) {
-      setError(
-        err?.response?.data?.message ||
-          "Something went wrong. Please try again.",
-      );
-    } finally {
-      setLoading(false);
     }
   };
+  const displayedError = localError || error;
 
   return (
     <Box

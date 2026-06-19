@@ -61,10 +61,11 @@ export default function Header() {
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
 
   // ── Grab Auth & Notification Data from Redux Store ────────────────────────
-  const { token, firstName, lastName, email } = useAppSelector((state) => state.auth);
+  // const { token, firstName, lastName, email } = useAppSelector((state) => state.auth);
+   const { access, firstName, lastName, email } = useAppSelector((state) => state.auth);
   const { items: notifications, unreadCount } = useAppSelector((state) => state.notifications);
 
-  const isLoggedIn = Boolean(token);
+  const isLoggedIn = Boolean(access);
   const fullName = `${firstName || ""} ${lastName || ""}`.trim() || email || "User";
   const initials = firstName?.[0]?.toUpperCase() || email?.[0]?.toUpperCase() || "U";
 
@@ -107,7 +108,7 @@ export default function Header() {
         setSearchLoading(true);
         const res = await fetch(
           `${process.env.NEXT_PUBLIC_API_BASE_URL}/search/global/?q=${encodeURIComponent(search)}`,
-          { headers: { Authorization: `Token ${token}` } }
+          { headers: { Authorization: `Bearer ${access}` } }
         );
         if (res.ok) {
           const data = await res.json();
@@ -122,7 +123,7 @@ export default function Header() {
     }, 400);
 
     return () => clearTimeout(delayDebounce);
-  }, [search, isLoggedIn, token]);
+  }, [search, isLoggedIn, access]);
 
   // ── Action Handlers ───────────────────────────────────────────────────────
   const handleOpenNotificationMenu = (e: React.MouseEvent<HTMLElement>) => {
@@ -137,18 +138,17 @@ export default function Header() {
     setNotificationAnchor(null);
   };
 
-  const handleLogout = async () => {
-    try {
-      await dispatch(logoutUser()).unwrap();
-      dispatch(resetNotifications());
-    } catch (err) {
-      console.error("Logout request error:", err);
-    } finally {
-      document.cookie = "token=; path=/; max-age=0; SameSite=Strict";
-      setAnchorEl(null);
-      router.push("/login");
-    }
-  };
+
+  const handleLogout = () => {
+  localStorage.removeItem("access");
+  localStorage.removeItem("refresh");
+  localStorage.removeItem("user");
+
+  document.cookie =
+    "access=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+
+  router.push("/login");
+};
 
   const handleNotificationClick = (item: any) => {
     const typeRoutes: Record<string, string> = {

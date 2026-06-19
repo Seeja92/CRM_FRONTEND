@@ -8,6 +8,7 @@ import {
   DialogActions,
   Box,
   Typography,
+  Autocomplete,
   TextField,
   Button,
   Select,
@@ -24,6 +25,13 @@ import CloseIcon from "@mui/icons-material/Close";
 import EmailOutlinedIcon from "@mui/icons-material/EmailOutlined";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import ReactCountryFlag from "react-country-flag";
+import { useDispatch, useSelector } from "react-redux";
+import { AppDispatch, RootState } from "@/store";
+import { fetchCompanies } from "@/store/slices/companiesSlice";
+import { fetchUsers } from "@/store/slices/usersSlice";
+import type { User } from "@/store/slices/usersSlice";
+import type { Company } from "@/store/slices/companiesSlice";
+import { AutocompleteRenderInputParams } from "@mui/material";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 export interface LeadFormData {
@@ -33,8 +41,10 @@ export interface LeadFormData {
   phone: string;
   jobTitle: string;
   companyName?: string;
-  contactOwners: string[]; // ← multi-select (array)
+  companyId?: number | null;
+  contactOwners: number[]; // ← multi-select (array)
   leadStatus: string;
+  city: string;
 }
 
 interface LeadFormErrors {
@@ -95,8 +105,11 @@ export default function LeadForm({
     phone: "",
     jobTitle: "",
     companyName: "",
-    contactOwners: [],
+    companyId: null,
+    // contactOwners: [],
+    contactOwners: [] as number[],
     leadStatus: "",
+    city: "",
   });
   useEffect(() => {
     if (initialData) {
@@ -104,35 +117,46 @@ export default function LeadForm({
     }
   }, [initialData]);
   const isEdit = !!initialData?.email;
-  const [users, setUsers] = useState<{ id: number; name: string }[]>([]);
-  // const [users, setUsers] = useState<{ id: number; username: string }[]>([]);
-  useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        const NEXT_PUBLIC_API_URL =  `${process.env.NEXT_PUBLIC_API_BASE_URL}/auth`;
-        
-        const token = localStorage.getItem("token");
-        // Add this temporarily to see all localStorage keys
-        console.log("All localStorage:", { ...localStorage });
-        const res = await fetch(`${NEXT_PUBLIC_API_URL}/users/`, {
-          headers: {
-            Authorization: `Token ${token}`,
-          },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          console.log("Users API response:", data);
-          setUsers(data.results || data);
-        } else {
-          console.log("Status:", res.status); // 👈 check if 404 or 403
-        }
-      } catch (err) {
-        console.error("Failed to fetch users:", err);
-      }
-    };
 
-    fetchUsers();
-  }, []);
+  const dispatch = useDispatch<AppDispatch>();
+
+  const users = useSelector((state: RootState) => state.users.users);
+  
+
+  (state: RootState) => state.companies.companies;
+
+  const companies = useSelector(
+    (state: RootState): Company[] => state.companies.companies,
+  );
+  const role = useSelector(
+  (state: RootState) => state.auth.role
+);
+
+const loggedInUserId = useSelector(
+  (state: RootState) => state.auth.id
+);
+
+  useEffect(() => {
+    dispatch(fetchUsers());
+  }, [dispatch]);
+
+  useEffect(() => {
+  if (
+    role === "User" &&
+    loggedInUserId &&
+    form.contactOwners.length === 0
+  ) {
+    setForm((prev) => ({
+      ...prev,
+      contactOwners: [loggedInUserId],
+    }));
+  }
+}, [role, loggedInUserId]);
+
+  useEffect(() => {
+    dispatch(fetchCompanies({}));
+  }, [dispatch]);
+
   const [errors, setErrors] = useState<LeadFormErrors>({});
 
   const handleChange = (field: keyof LeadFormData, value: string) => {
@@ -141,10 +165,10 @@ export default function LeadForm({
   };
 
   // Multi-select handler for contactOwners
-  const handleOwnersChange = (value: string[]) => {
+  const handleOwnersChange = (value: number[]) => {
     setForm((prev) => ({ ...prev, contactOwners: value }));
   };
-
+console.log("USERS:", users);
   // ── Validation ──
   const validate = () => {
     const newErrors: LeadFormErrors = {};
@@ -170,8 +194,10 @@ export default function LeadForm({
       phone: "",
       jobTitle: "",
       companyName: "",
+      companyId: null,
       contactOwners: [],
       leadStatus: "",
+      city: "",
     });
     setErrors({});
     onClose();
@@ -356,38 +382,86 @@ export default function LeadForm({
           {/* Company Name */}
           <Box>
             <FieldLabel>Company Name</FieldLabel>
-            <TextField
-              fullWidth
-              size="small"
-              placeholder="Enter"
-              value={form.companyName}
-              onChange={(e) => handleChange("companyName", e.target.value)}
-              sx={inputSx}
-            />
+
+            <Box>
+              <Autocomplete
+                options={companies}
+                getOptionLabel={(option: any) => option.company_name}
+                value={
+                  companies.find((c: any) => c.id === form.companyId) || null
+                }
+                onChange={(_, newValue: any) => {
+                  setForm((prev) => ({
+                    ...prev,
+                    companyId: newValue ? newValue.id : null,
+                    companyName: newValue ? newValue.company_name : "",
+                  }));
+                }}
+                renderOption={(props: any, option: any) => {
+                  const { key, ...restProps } = props as any;
+                  return (
+                    <li key={option.id} {...restProps}>
+                      {" "}
+                      {/* ← use id as key */}
+                      {option.company_name}
+                    </li>
+                  );
+                }}
+                renderInput={(params: any) => (
+                  <TextField
+                    {...params}
+                    size="small"
+                    placeholder="Select company (optional)"
+                    sx={inputSx}
+                  />
+                )}
+                clearOnEscape
+                isOptionEqualToValue={(option, value) => option.id === value.id}
+                sx={{
+                  "& .MuiOutlinedInput-root": { borderRadius: "8px" },
+                }}
+              />
+            </Box>
+
+            <Box>
+              <FieldLabel>City</FieldLabel>
+
+              <TextField
+                fullWidth
+                size="small"
+                placeholder="Enter city"
+                value={form.city}
+                onChange={(e) => handleChange("city", e.target.value)}
+                sx={inputSx}
+              />
+            </Box>
           </Box>
 
           {/* Contact Owner — MULTI-SELECT */}
           <Box>
             <FieldLabel>Contact Owner</FieldLabel>
-            <Select
+            {/* <Select
               fullWidth
               size="small"
               multiple
               displayEmpty
               value={form.contactOwners}
-              onChange={(e) => handleOwnersChange(e.target.value as string[])}
+              onChange={(e) => handleOwnersChange(e.target.value as number[])}
               input={<OutlinedInput />}
               IconComponent={KeyboardArrowDownIcon}
               renderValue={(selected) => {
-                if ((selected as string[]).length === 0) {
+                if ((selected as number[]).length === 0) {
                   return <span style={{ color: "#9CA3AF" }}>Choose</span>;
                 }
                 return (
                   <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-                    {(selected as string[]).map((val) => (
+                    {(selected as number[]).map((val) => (
                       <Chip
                         key={val}
-                        label={val}
+                        // label={val}
+                        label={
+  users.find((u) => u.id === val)?.name || val
+}
                         size="small"
                         onDelete={(e) => {
                           e.stopPropagation();
@@ -418,9 +492,9 @@ export default function LeadForm({
               MenuProps={{ PaperProps: { sx: { maxHeight: 220 } } }}
             >
               {users.map((user) => (
-                <MenuItem key={user.id} value={user.name} sx={{ py: 0.5 }}>
+                <MenuItem key={user.id} value={user.id} sx={{ py: 0.5 }}>
                   <Checkbox
-                    checked={form.contactOwners.includes(user.name)}
+                    checked={form.contactOwners.includes(user.id)}
                     size="small"
                     sx={{
                       p: 0.5,
@@ -436,7 +510,41 @@ export default function LeadForm({
                   />
                 </MenuItem>
               ))}
-            </Select>
+            </Select> */}
+            {role === "Admin" ? (
+  <Select
+    fullWidth
+    size="small"
+    multiple
+    displayEmpty
+    value={form.contactOwners}
+    onChange={(e) =>
+      handleOwnersChange(e.target.value as number[])
+    }
+    input={<OutlinedInput />}
+    IconComponent={KeyboardArrowDownIcon}
+  >
+    {users.map((user) => (
+      <MenuItem key={user.id} value={user.id}>
+        <Checkbox
+          checked={form.contactOwners.includes(user.id)}
+        />
+        <ListItemText primary={user.name} />
+      </MenuItem>
+    ))}
+  </Select>
+) : (
+  <TextField
+    fullWidth
+    size="small"
+    disabled
+    value={
+      users.find(
+        (u) => u.id === loggedInUserId
+      )?.name || ""
+    }
+  />
+)}
           </Box>
 
           {/* Lead Status */}

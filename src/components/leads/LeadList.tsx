@@ -1,12 +1,17 @@
+
 "use client";
 
 import { useState, useEffect, useRef } from "react";
 import LeadForm from "./LeadForm";
 import LeadView from "./LeadView";
 import { Snackbar, Alert } from "@mui/material";
+import { Popover, Typography } from "@mui/material";
+import { DatePicker } from "@mui/x-date-pickers/DatePicker";
+import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import dayjs, { Dayjs } from "dayjs";
 import {
   Box,
-  Typography,
   Button,
   Table,
   TableBody,
@@ -28,7 +33,7 @@ import {
   MenuItem,
   FormControl,
 } from "@mui/material";
-
+import { importLeads } from '@/store/slices/leadsSlice';
 import SearchIcon from "@mui/icons-material/Search";
 import CalendarTodayIcon from "@mui/icons-material/CalendarToday";
 import EditIcon from "@mui/icons-material/Edit";
@@ -38,6 +43,8 @@ import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIosNewIcon from "@mui/icons-material/ArrowBackIosNew";
 import ArrowForwardIosIcon from "@mui/icons-material/ArrowForwardIos";
 import { useRouter } from "next/navigation";
+import Menu from "@mui/material/Menu";
+// import MenuItem from "@mui/material/MenuItem";
 import { apiRequest } from "@/lib/api/leads";
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { fetchLeads as fetchLeadsAction, deleteLead, createLead, updateLead } from '@/store/slices/leadsSlice';
@@ -65,7 +72,8 @@ interface Lead {
   status: LeadStatus;
   company_name: string;
   job_title?: string;
-  contact_owner?: string;
+  contact_owner?: number;
+  city?:string;
 }
 
 // ── All status values ─────────────────────────────────────────────────────────
@@ -97,6 +105,16 @@ const statusStyles: Record<LeadStatus, { bgcolor: string; color: string }> = {
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function LeadList() {
   const router = useRouter();
+  // const [dateAnchorEl, setDateAnchorEl] = useState(null);
+  // const [dateAnchorEl, setDateAnchorEl] =
+  // useState<null | HTMLElement>(null);
+// const [createdDateFilter, setCreatedDateFilter] = useState("");
+const [createdDateFilter, setCreatedDateFilter] =
+  useState<Dayjs | null>(null);
+
+const [createdDateAnchor, setCreatedDateAnchor] =
+  useState<null | HTMLElement>(null);
+  
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const dispatch = useAppDispatch();
@@ -129,45 +147,45 @@ export default function LeadList() {
   }, [search, statusFilter]);
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const formData = new FormData();
-    formData.append("file", file);
-    try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/leads/import/`,
-        { method: "POST", body: formData }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setSnackbar({
-          open: true,
-          message: `${data.imported_count || "Leads"} imported successfully!`,
-          severity: "success",
-        });
-        fetchLeads();
-      } else {
-        const err = await res.json();
-        setSnackbar({
-          open: true,
-          message: err.detail || "Import failed. Check your file format.",
-          severity: "error",
-        });
-      }
-    } catch (err) {
-      console.error(err);
-      setSnackbar({
-        open: true,
-        message: "Import failed. Please try again.",
-        severity: "error",
-      });
-    }
-    e.target.value = "";
-  };
+  const file = e.target.files?.[0];
+  if (!file) return;
+  try {
+    const result = await dispatch(importLeads(file)).unwrap();
+    setSnackbar({
+      open: true,
+      message: `${result.imported_count || 'Leads'} imported successfully!`,
+      severity: 'success',
+    });
+    fetchLeads();
+  } catch (err: any) {
+    setSnackbar({
+      open: true,
+      message: err.message || 'Import failed. Check your file format.',
+      severity: 'error',
+    });
+  }
+  e.target.value = '';
+};
+  console.log("LEADS DATA:", leads);
+ const filteredLeads = leads.filter((lead) => {
+  const matchCreated = createdDateFilter
+    ? dayjs(lead.created_date).format("YYYY-MM-DD") ===
+      createdDateFilter.format("YYYY-MM-DD")
+    : true;
 
-  // ── Pagination ───────────────────────────────────────────────────────────────
-  const totalPages = Math.ceil(leads.length / rowsPerPage);
-  const paginated = leads.slice((page - 1) * rowsPerPage, page * rowsPerPage);
+  return matchCreated;
+});
+
+  
+  // const totalPages = Math.ceil(leads.length / rowsPerPage);
+
+  // const paginated = leads.slice((page - 1) * rowsPerPage, page * rowsPerPage);
+  const totalPages = Math.ceil(filteredLeads.length / rowsPerPage);
+
+const paginated = filteredLeads.slice(
+  (page - 1) * rowsPerPage,
+  page * rowsPerPage
+);
 
   // ── Select All ───────────────────────────────────────────────────────────────
   const allSelected =
@@ -186,22 +204,40 @@ export default function LeadList() {
   // ── Delete ───────────────────────────────────────────────────────────────────
   const handleDeleteConfirm = async () => {
     if (deleteId === null) return;
+    // try {
+    //   await dispatch(deleteLead(deleteId));
+    //   setSelected((prev) => prev.filter((id) => id !== deleteId));
+    //   setSnackbar({
+    //     open: true,
+    //     message: "Lead deleted successfully!",
+    //     severity: "success",
+    //   });
+    // } catch (err) {
+    //   console.error("Failed to delete lead:", err);
+    // }
     try {
-      await dispatch(deleteLead(deleteId));
-      setSelected((prev) => prev.filter((id) => id !== deleteId));
-      setSnackbar({
-        open: true,
-        message: "Lead deleted successfully!",
-        severity: "success",
-      });
-    } catch (err) {
-      console.error("Failed to delete lead:", err);
-    }
+  await dispatch(deleteLead(deleteId)).unwrap();
+
+  setSnackbar({
+    open: true,
+    message: "Lead deleted successfully",
+    severity: "success",
+  });
+} catch (error: any) {
+  setSnackbar({
+    open: true,
+    message: error || "You are not allowed to delete this lead",
+    severity: "error",
+  });
+}
     setDeleteId(null);
   };
 
   // ── Create ───────────────────────────────────────────────────────────────────
   const handleCreateSave = async (data: any) => {
+    console.log("EDIT LEAD:", data);
+console.log("CONTACT OWNER:", data.contact_owner);
+console.log("TYPE:", typeof data.contact_owner);
     try {
       await dispatch(createLead({
         first_name: data.firstName,
@@ -210,8 +246,11 @@ export default function LeadList() {
         phone: data.phone,
         job_title: data.jobTitle,
         company_name: data.companyName,
-        contact_owner: data.contactOwners?.join(", "),
+        company: data.companyId || null,
+        // contact_owner: data.contactOwners?.join(", "),
+        contact_owner: data.contactOwners[0],
         status: data.leadStatus || "New",
+        city: data.city,
       }));
       setSnackbar({
         open: true,
@@ -236,8 +275,11 @@ export default function LeadList() {
           phone: data.phone,
           job_title: data.jobTitle,
           company_name: data.companyName,
-          contact_owner: data.contactOwners?.join(", "),
+          company: data.companyId || null,
+          // contact_owner: data.contactOwners?.join(", "),
+          contact_owner: data.contactOwners[0],
           status: data.leadStatus || editLead.status,
+          city: data.city,
         }
       }));
       setSnackbar({
@@ -333,7 +375,7 @@ export default function LeadList() {
         }}
       >
         <TextField
-          placeholder="Search phone, name, email, company"
+          placeholder="Search phone, name, email, company,status"
           size="small"
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1); }}
@@ -444,22 +486,108 @@ export default function LeadList() {
               </MenuItem>
             ))}
           </Select>
-        </FormControl>
+         </FormControl>
+     
+
+<Button
+  size="small"
+  variant="outlined"
+  endIcon={<CalendarTodayIcon sx={{ fontSize: 14 }} />}
+  onClick={(e) => setCreatedDateAnchor(e.currentTarget)}
+  sx={{
+    borderRadius: 1.5,
+    textTransform: "none",
+    fontSize: 13,
+    borderColor: createdDateFilter ? "#6c63ff" : "#E5E7EB",
+    color: createdDateFilter ? "#6c63ff" : "#6B7280",
+    px: 1.5,
+    backgroundColor: "#fff",
+  }}
+>
+  {createdDateFilter
+    ? createdDateFilter.format("MM/DD/YYYY")
+    : "Created Date"}
+</Button>
+
+<Popover
+  open={Boolean(createdDateAnchor)}
+  anchorEl={createdDateAnchor}
+  onClose={() => setCreatedDateAnchor(null)}
+  anchorOrigin={{
+    vertical: "bottom",
+    horizontal: "left",
+  }}
+  transformOrigin={{
+    vertical: "top",
+    horizontal: "left",
+  }}
+>
+  <LocalizationProvider dateAdapter={AdapterDayjs}>
+    <Box
+      sx={{
+        p: 2,
+        display: "flex",
+        flexDirection: "column",
+        gap: 2,
+        minWidth: 280,
+      }}
+    >
+      <Typography
+        sx={{
+          fontWeight: 600,
+          fontSize: 13,
+          color: "#1a1a2e",
+        }}
+      >
+        Filter by Created Date
+      </Typography>
+
+      <DatePicker
+        value={createdDateFilter}
+        onChange={(newValue) => {
+          setCreatedDateFilter(newValue);
+          setPage(1);
+        }}
+        slotProps={{
+          textField: {
+            size: "small",
+            fullWidth: true,
+          },
+        }}
+      />
+
+      <Box sx={{ display: "flex", gap: 1 }}>
         <Button
+          fullWidth
           size="small"
           variant="outlined"
-          endIcon={<CalendarTodayIcon sx={{ fontSize: 16 }} />}
-          sx={{
-            fontSize: 14,
-            borderRadius: 2,
-            borderColor: "#E5E7EB",
-            color: "#6B7280",
-            textTransform: "none",
-            backgroundColor: "#fff",
+          onClick={() => {
+            setCreatedDateFilter(null);
+            setPage(1);
+            setCreatedDateAnchor(null);
           }}
         >
-          Created Date
+          Clear
         </Button>
+
+        <Button
+          fullWidth
+          size="small"
+          variant="contained"
+          onClick={() => setCreatedDateAnchor(null)}
+          sx={{
+            bgcolor: "#6c63ff",
+            "&:hover": {
+              bgcolor: "#574fd6",
+            },
+          }}
+        >
+          Apply
+        </Button>
+      </Box>
+    </Box>
+  </LocalizationProvider>
+</Popover>
       </Box>
 
       {/* ── Table ── */}
@@ -668,17 +796,27 @@ export default function LeadList() {
             setEditLead(null);
           }}
           onSave={handleEditSave}
+          
           initialData={{
+            
             email: editLead.email,
             firstName: editLead.first_name,
             lastName: editLead.last_name,
             phone: editLead.phone,
             jobTitle: editLead.job_title || "",
             companyName: editLead.company_name || "",
+            // contactOwners: editLead.contact_owner
+            //   ? editLead.contact_owner.split(", ")
+            //   : [],
             contactOwners: editLead.contact_owner
-              ? editLead.contact_owner.split(", ")
-              : [],
+  ? [editLead.contact_owner]
+  : [],
+  //   contactOwners: editLead.contact_owner
+  // ? [String(editLead.contact_owner)]
+  // : [],
             leadStatus: editLead.status,
+            city: editLead.city || "",
+            
           }}
         />
       )}

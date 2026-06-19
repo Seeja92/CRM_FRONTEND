@@ -1,13 +1,13 @@
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
-const getToken = () => localStorage.getItem('token');
+const getToken = () => localStorage.getItem('access');
 
 export const attachmentsApi = {
   getAll: async (entityType: string, entityId: number) => {
     const res = await fetch(
       `${BASE_URL}/attachments/?entity_type=${entityType}&entity_id=${entityId}`,
       {
-        headers: { Authorization: `Token ${getToken()}` },
+        headers: { Authorization: `Bearer ${getToken()}` },
       }
     );
     if (!res.ok) throw new Error('Failed to fetch attachments');
@@ -22,7 +22,7 @@ export const attachmentsApi = {
 
     const res = await fetch(`${BASE_URL}/attachments/`, {
       method: 'POST',
-      headers: { Authorization: `Token ${getToken()}` },
+      headers: { Authorization: `Bearer ${getToken()}` },
       body: formData,
     });
     if (!res.ok) throw new Error('Failed to upload attachment');
@@ -32,7 +32,7 @@ export const attachmentsApi = {
   delete: async (id: number) => {
     const res = await fetch(`${BASE_URL}/attachments/${id}/`, {
       method: 'DELETE',
-      headers: { Authorization: `Token ${getToken()}` },
+      headers: { Authorization: `Bearer ${getToken()}` },
     });
     if (!res.ok) throw new Error('Failed to delete attachment');
   },

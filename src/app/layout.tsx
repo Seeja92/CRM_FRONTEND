@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+
 import MuiRegistry from '@/lib/theme/MuiRegistry';
 import ReduxProvider from '@/store/Provider';
 

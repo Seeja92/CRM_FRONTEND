@@ -1,4 +1,3 @@
-// src/types/lead.types.ts
 
 export type LeadStatus =
   | "Open"
@@ -21,7 +20,8 @@ export interface Lead {
   createdDate: string;
   status: LeadStatus;
   jobTitle?: string;
-  contactOwner?: string;
+  city?: string; 
+  contactOwner?: number;
   companyName?:string;
 }
 
@@ -31,7 +31,8 @@ export interface LeadFormData {
   lastName: string;
   phone: string;
   jobTitle: string;
-  contactOwner: string;
+  contactOwner: number;
   leadStatus: string;
   companyName?:string;
+  city?: string; 
 }

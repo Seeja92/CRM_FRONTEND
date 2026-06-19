@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   Box,
   Typography,
@@ -28,6 +28,7 @@ import {
   DialogContent,
   DialogActions,
   CircularProgress,
+  Popover,
 } from "@mui/material";
 import Autocomplete from "@mui/material/Autocomplete";
 import Grid from "@mui/material/Grid2";
@@ -38,6 +39,10 @@ import {
   CalendarToday,
   Close,
 } from "@mui/icons-material";
+import { DatePicker } from "@mui/x-date-pickers/DatePicker";
+import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import dayjs, { Dayjs } from "dayjs";
 import FileUploadOutlinedIcon from "@mui/icons-material/FileUploadOutlined";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIosNewIcon from "@mui/icons-material/ArrowBackIosNew";
@@ -48,10 +53,12 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   fetchCompanies as fetchCompaniesAction,
   deleteCompany,
+  fetchUsers,
+  importCompanies,
+  fetchCompanyById,
+  updateCompany,
+  createCompany,
 } from "@/store/slices/companiesSlice";
-
-const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
-const getToken = () => localStorage.getItem("token");
 
 const industryOptions = [
   "Legal Services",
@@ -145,10 +152,13 @@ export default function CompaniesPage() {
   const companies = useAppSelector((state) => state.companies.companies);
   const loading = useAppSelector((state) => state.companies.loading);
   const count = useAppSelector((state) => state.companies.count);
+  const users = useAppSelector((state) => state.companies.users);
 
   // ── State ─────────────────────────────────────────────────────────────────────
-  const [users, setUsers] = useState<any[]>([]);
   const [search, setSearch] = useState("");
+  // ADD single date
+  const [selectedDate, setSelectedDate] = useState<Dayjs | null>(null);
+  const [dateAnchor, setDateAnchor] = useState<null | HTMLElement>(null);
   const [selected, setSelected] = useState<number[]>([]);
   const [industryFilter, setIndustryFilter] = useState("All");
   const [cityFilter, setCityFilter] = useState("All");
@@ -177,8 +187,8 @@ export default function CompaniesPage() {
     [companies],
   );
 
-  // ── Fetch Companies ──────────────────────────────────────────────────────────
-  const fetchCompanies = () => {
+  // ── Fetch Companies ───────────────────────────────────────────────────────────
+  const fetchCompanies = useCallback(() => {
     dispatch(
       fetchCompaniesAction({
         search,
@@ -186,85 +196,55 @@ export default function CompaniesPage() {
         city: cityFilter,
         country: countryFilter,
         lead_status: leadStatusFilter,
+        date_from: selectedDate ? selectedDate.format("YYYY-MM-DD") : undefined,
+        date_to: selectedDate ? selectedDate.format("YYYY-MM-DD") : undefined,
       }),
     );
-  };
+  }, [search, industryFilter, cityFilter, countryFilter, leadStatusFilter, selectedDate]);
 
-  // ── Fetch Users ───────────────────────────────────────────────────────────────
-  const fetchUsers = async () => {
+  // ── Edit Click ────────────────────────────────────────────────────────────────
+  const handleEditClick = async (id: number) => {
     try {
-      const res = await fetch(`${BASE_URL}/auth/users/`, {
-        headers: { Authorization: `Token ${getToken()}` },
+      const data = await dispatch(fetchCompanyById(id)).unwrap();
+      setForm({
+        domainName: data.domain_name || "",
+        companyName: data.company_name || "",
+        ownerIds: data.company_owner?.map((o: any) => o.id) || [],
+        industry: data.industry || "",
+        type: data.type || "",
+        city: data.city || "",
+        country: data.country || "",
+        noOfEmployees: data.no_of_employees || "",
+        annualRevenue: data.annual_revenue || "",
+        email: data.email || "",
+        phoneNumber: data.phone_number || "",
+        phoneCode: "IN",
       });
-      const data = await res.json();
-      if (res.ok) {
-        setUsers(Array.isArray(data) ? data : data.results || []);
-      } else {
-        setUsers([]);
-      }
-    } catch (err) {
-      console.error("Failed to fetch users:", err);
-      setUsers([]);
+      setEditId(id);
+      setOpenModal(true);
+    } catch {
+      setSnackbar({ open: true, message: "Failed to load company details.", severity: "error" });
     }
   };
 
-  // ── Fetch Single Company for Edit ────────────────────────────────────────────
-  const fetchCompanyById = async (id: number) => {
-    try {
-      const res = await fetch(`${BASE_URL}/companies/${id}/`, {
-        headers: { Authorization: `Token ${getToken()}` },
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setForm({
-          domainName: data.domain_name || "",
-          companyName: data.company_name || "",
-          ownerIds: data.company_owner?.map((o: any) => o.id) || [],
-          industry: data.industry || "",
-          type: data.type || "",
-          city: data.city || "",
-          country: data.country || "",
-          noOfEmployees: data.no_of_employees || "",
-          annualRevenue: data.annual_revenue || "",
-          email: data.email || "",
-          phoneNumber: data.phone_number || "",
-          phoneCode: "IN",
-        });
-        setEditId(id);
-        setOpenModal(true);
-      } else {
-        setSnackbar({
-          open: true,
-          message: "Failed to load company details.",
-          severity: "error",
-        });
-      }
-    } catch (err) {
-      console.error("Failed to fetch company:", err);
-      setSnackbar({
-        open: true,
-        message: "Failed to load company details.",
-        severity: "error",
-      });
-    }
-  };
+  // ── Effects ───────────────────────────────────────────────────────────────────
+ useEffect(() => {
+  setPage(1);
+}, [search, industryFilter, cityFilter, countryFilter, leadStatusFilter, selectedDate]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [search, industryFilter, cityFilter, countryFilter, leadStatusFilter]);
+useEffect(() => {
+  fetchCompanies();
+  dispatch(fetchUsers());
+}, [fetchCompanies]);
 
-  useEffect(() => {
-    fetchCompanies();
-    fetchUsers();
-  }, [search, industryFilter, cityFilter, countryFilter, leadStatusFilter]);
-
+  // ── Pagination ────────────────────────────────────────────────────────────────
   const totalPages = Math.max(1, Math.ceil(count / rowsPerPage));
   const paginated = companies.slice(
     (page - 1) * rowsPerPage,
     page * rowsPerPage,
   );
 
-  // ── Select ───────────────────────────────────────────────────────────────────
+  // ── Select ────────────────────────────────────────────────────────────────────
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSelected(e.target.checked ? paginated.map((c: any) => c.id) : []);
   };
@@ -275,38 +255,51 @@ export default function CompaniesPage() {
     );
   };
 
-  // ── Delete ───────────────────────────────────────────────────────────────────
+  // ── Delete ────────────────────────────────────────────────────────────────────
   const companyToDelete = companies.find((c: any) => c.id === deleteId);
   const handleDeleteConfirm = async () => {
     if (!deleteId) return;
+    // try {
+    //   await dispatch(deleteCompany(deleteId));
+    //   setDeleteId(null);
+    //   setSnackbar({
+    //     open: true,
+    //     message: "Company deleted successfully!",
+    //     severity: "success",
+    //   });
+    // } catch (err) {
+    //   console.error("Failed to delete company:", err);
+    // }
     try {
-      await dispatch(deleteCompany(deleteId));
-      setDeleteId(null);
-      setSnackbar({
-        open: true,
-        message: "Company deleted successfully!",
-        severity: "success",
-      });
-    } catch (err) {
-      console.error("Failed to delete company:", err);
-    }
+  await dispatch(deleteCompany(deleteId)).unwrap();
+
+  setSnackbar({
+    open: true,
+    message: "Company deleted successfully",
+    severity: "success",
+  });
+} catch (err: any) {
+  setSnackbar({
+    open: true,
+    message: err || "You don't have permission to delete",
+    severity: "error",
+  });
+}
   };
 
-  // ── Form ─────────────────────────────────────────────────────────────────────
+  // ── Form ──────────────────────────────────────────────────────────────────────
   const handleFormChange =
     (field: keyof CreateCompanyForm) =>
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setForm((prev) => ({ ...prev, [field]: e.target.value }));
-      setFormErrors((prev) => ({ ...prev, [field]: "" }));
-    };
+      (e: React.ChangeEvent<HTMLInputElement>) => {
+        setForm((prev) => ({ ...prev, [field]: e.target.value }));
+        setFormErrors((prev) => ({ ...prev, [field]: "" }));
+      };
 
   const validateForm = (): boolean => {
     const errors: FormErrors = {};
     if (!form.domainName.trim()) errors.domainName = "Domain name is required.";
-    if (!form.companyName.trim())
-      errors.companyName = "Company name is required.";
-    if (!form.ownerIds.length)
-      errors.ownerIds = "At least one owner is required.";
+    if (!form.companyName.trim()) errors.companyName = "Company name is required.";
+    if (!form.ownerIds.length) errors.ownerIds = "At least one owner is required.";
     if (!form.industry) errors.industry = "Industry is required.";
     if (!form.type) errors.type = "Type is required.";
     if (!form.email.trim()) {
@@ -314,66 +307,49 @@ export default function CompaniesPage() {
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
       errors.email = "Enter a valid email address.";
     }
-    if (!form.phoneNumber.trim())
-      errors.phoneNumber = "Phone number is required.";
+    if (!form.phoneNumber.trim()) errors.phoneNumber = "Phone number is required.";
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
-  // ── Save (Create + Edit) ─────────────────────────────────────────────────────
+  // ── Save (Create + Edit) ──────────────────────────────────────────────────────
   const handleSave = async () => {
     if (!validateForm()) return;
+
+    const payload = {
+      domain_name: form.domainName,
+      company_name: form.companyName,
+      company_owner_ids: form.ownerIds,
+      industry: form.industry,
+      type: form.type,
+      city: form.city,
+      country: form.country,
+      no_of_employees: form.noOfEmployees,
+      annual_revenue: form.annualRevenue,
+      email: form.email,
+      phone_number: form.phoneNumber,
+    };
+
     try {
-      const url = editId
-        ? `${process.env.NEXT_PUBLIC_API_BASE_URL}/companies/${editId}/`
-        : `${process.env.NEXT_PUBLIC_API_BASE_URL}/companies/`;
-      const method = editId ? "PUT" : "POST";
-      const res = await fetch(url, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Token ${getToken()}`,
-        },
-        body: JSON.stringify({
-          domain_name: form.domainName,
-          company_name: form.companyName,
-          company_owner_ids: form.ownerIds,
-          industry: form.industry,
-          type: form.type,
-          city: form.city,
-          country: form.country,
-          no_of_employees: form.noOfEmployees,
-          annual_revenue: form.annualRevenue,
-          email: form.email,
-          phone_number: form.phoneNumber,
-        }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setForm(initialForm);
-        setFormErrors({});
-        setOpenModal(false);
-        setEditId(null);
-        setSnackbar({
-          open: true,
-          message: editId
-            ? "Company updated successfully!"
-            : "Company created successfully!",
-          severity: "success",
-        });
-        fetchCompanies();
+      if (editId) {
+        await dispatch(updateCompany({ id: editId, payload })).unwrap();
       } else {
-        setSnackbar({
-          open: true,
-          message: data.error || "Failed to save company.",
-          severity: "error",
-        });
+        await dispatch(createCompany(payload)).unwrap();
       }
-    } catch (err) {
-      console.error(err);
+      setForm(initialForm);
+      setFormErrors({});
+      setOpenModal(false);
+      setEditId(null);
       setSnackbar({
         open: true,
-        message: "Failed to save company. Please try again.",
+        message: editId ? "Company updated successfully!" : "Company created successfully!",
+        severity: "success",
+      });
+      fetchCompanies();
+    } catch (err: any) {
+      setSnackbar({
+        open: true,
+        message: err.message || "Failed to save company.",
         severity: "error",
       });
     }
@@ -386,52 +362,17 @@ export default function CompaniesPage() {
     setEditId(null);
   };
 
-  // ── Import ───────────────────────────────────────────────────────────────────
-
+  // ── Import ────────────────────────────────────────────────────────────────────
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-
     if (!file) return;
-
-    const formData = new FormData();
-    formData.append("file", file);
-
     try {
-      const res = await fetch(`${BASE_URL}/companies/import/`, {
-        method: "POST",
-        headers: {
-        Authorization: `Token ${getToken()}`, 
-      },
-        body: formData,
-      });
-
-      const data: any = await res.json();
-
-      if (res.ok) {
-        setSnackbar({
-          open: true,
-          message: `${data.imported_count} companies imported successfully!`,
-          severity: "success",
-        });
-
-        fetchCompanies();
-      } else {
-        setSnackbar({
-          open: true,
-          message: data.detail || "Import failed.",
-          severity: "error",
-        });
-      }
-    } catch (err) {
-      console.error(err);
-
-      setSnackbar({
-        open: true,
-        message: "Import failed. Please try again.",
-        severity: "error",
-      });
+      await dispatch(importCompanies(file)).unwrap();
+      setSnackbar({ open: true, message: "Companies imported successfully!", severity: "success" });
+      fetchCompanies();
+    } catch (err: any) {
+      setSnackbar({ open: true, message: err.message || "Import failed.", severity: "error" });
     }
-
     e.target.value = "";
   };
 
@@ -510,7 +451,7 @@ export default function CompaniesPage() {
         }}
       >
         <TextField
-          placeholder="Search name, phone, city, owner"
+          placeholder="Search name, city, country, phone, owner"
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
@@ -642,21 +583,76 @@ export default function CompaniesPage() {
             ))}
           </Select>
         </FormControl>
+
+        {/* Created Date Filter */}
         <Button
           size="small"
           variant="outlined"
           endIcon={<CalendarToday sx={{ fontSize: 14 }} />}
+          onClick={(e) => setDateAnchor(e.currentTarget)}
           sx={{
             borderRadius: 1.5,
             textTransform: "none",
             fontSize: 13,
-            borderColor: "#E5E7EB",
-            color: "#6B7280",
+            borderColor: selectedDate ? "#6c63ff" : "#E5E7EB",
+            color: selectedDate ? "#6c63ff" : "#6B7280",
             backgroundColor: "#fff",
+            whiteSpace: "nowrap",
           }}
         >
-          Created Date
+          {selectedDate ? selectedDate.format("MM/DD/YYYY") : "Created Date"}
         </Button>
+
+        <Popover
+          open={Boolean(dateAnchor)}
+          anchorEl={dateAnchor}
+          onClose={() => setDateAnchor(null)}
+          anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+          transformOrigin={{ vertical: "top", horizontal: "left" }}
+          PaperProps={{ sx: { overflowY: "auto" } }}
+        >
+          <LocalizationProvider dateAdapter={AdapterDayjs}>
+            <Box sx={{ p: 2, display: "flex", flexDirection: "column", gap: 2, minWidth: 280 }}>
+              <Typography sx={{ fontWeight: 600, fontSize: 13, color: "#1a1a2e" }}>
+                Filter by Created Date
+              </Typography>
+              <DatePicker
+                value={selectedDate}
+                onChange={(newValue) => { setSelectedDate(newValue); setPage(1); }}
+                slotProps={{
+                  textField: {
+                    size: "small",
+                    fullWidth: true,
+                    sx: fieldSx,
+                  },
+                }}
+              />
+              <Box sx={{ display: "flex", gap: 1 }}>
+                <Button
+                  fullWidth size="small" variant="outlined"
+                  onClick={() => {
+                    setSelectedDate(null);
+                    setPage(1);
+                    setDateAnchor(null);
+                  }}
+                  sx={{ textTransform: "none", borderRadius: 1.5, fontSize: 12, borderColor: "#e0e0e0", color: "#555" }}
+                >
+                  Clear
+                </Button>
+                <Button
+                  fullWidth size="small" variant="contained"
+                  onClick={() => {
+                    fetchCompanies();
+                    setDateAnchor(null);
+                  }}
+                  sx={{ textTransform: "none", borderRadius: 1.5, fontSize: 12, bgcolor: "#6c63ff", "&:hover": { bgcolor: "#574fd6" } }}
+                >
+                  Apply
+                </Button>
+              </Box>
+            </Box>
+          </LocalizationProvider>
+        </Popover>
       </Box>
 
       {/* Loading */}
@@ -688,10 +684,7 @@ export default function CompaniesPage() {
           >
             <TableHead>
               <TableRow sx={{ backgroundColor: "#6c63ff" }}>
-                <TableCell
-                  padding="checkbox"
-                  sx={{ backgroundColor: "#6c63ff" }}
-                >
+                <TableCell padding="checkbox" sx={{ backgroundColor: "#6c63ff" }}>
                   <Checkbox
                     sx={{ color: "#fff", "&.Mui-checked": { color: "#fff" } }}
                     checked={
@@ -795,7 +788,7 @@ export default function CompaniesPage() {
                         size="small"
                         onClick={(e) => {
                           e.stopPropagation();
-                          fetchCompanyById(company.id);
+                          handleEditClick(company.id);
                         }}
                         sx={{ color: "#6c63ff" }}
                       >
@@ -940,9 +933,7 @@ export default function CompaniesPage() {
                   <TextField
                     {...params}
                     size="small"
-                    placeholder={
-                      form.ownerIds.length === 0 ? "Select owners" : ""
-                    }
+                    placeholder={form.ownerIds.length === 0 ? "Select owners" : ""}
                     error={!!formErrors.ownerIds}
                     helperText={formErrors.ownerIds}
                     sx={fieldSx}
@@ -958,12 +949,8 @@ export default function CompaniesPage() {
                         sx={{ "&.Mui-checked": { color: "#6c63ff" }, mr: 1 }}
                       />
                       <Box>
-                        <Typography sx={{ fontSize: 13 }}>
-                          {option.name}
-                        </Typography>
-                        <Typography sx={{ fontSize: 11, color: "#888" }}>
-                          {option.email}
-                        </Typography>
+                        <Typography sx={{ fontSize: 13 }}>{option.name}</Typography>
+                        <Typography sx={{ fontSize: 11, color: "#888" }}>{option.email}</Typography>
                       </Box>
                     </li>
                   );
@@ -1001,9 +988,7 @@ export default function CompaniesPage() {
                     <span style={{ color: "#b0b0b0" }}>Choose</span>
                   </MenuItem>
                   {industryOptions.map((o) => (
-                    <MenuItem key={o} value={o}>
-                      {o}
-                    </MenuItem>
+                    <MenuItem key={o} value={o}>{o}</MenuItem>
                   ))}
                 </Select>
                 {formErrors.industry && (
@@ -1033,9 +1018,7 @@ export default function CompaniesPage() {
                     <span style={{ color: "#b0b0b0" }}>Choose</span>
                   </MenuItem>
                   {typeOptions.map((o) => (
-                    <MenuItem key={o} value={o}>
-                      {o}
-                    </MenuItem>
+                    <MenuItem key={o} value={o}>{o}</MenuItem>
                   ))}
                 </Select>
                 {formErrors.type && (
@@ -1044,52 +1027,36 @@ export default function CompaniesPage() {
               </FormControl>
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
-              <Typography variant="body2" sx={labelSx}>
-                City
-              </Typography>
+              <Typography variant="body2" sx={labelSx}>City</Typography>
               <TextField
-                fullWidth
-                size="small"
-                placeholder="Enter"
+                fullWidth size="small" placeholder="Enter"
                 value={form.city}
                 onChange={handleFormChange("city")}
                 sx={fieldSx}
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
-              <Typography variant="body2" sx={labelSx}>
-                Country/Region
-              </Typography>
+              <Typography variant="body2" sx={labelSx}>Country/Region</Typography>
               <TextField
-                fullWidth
-                size="small"
-                placeholder="Enter"
+                fullWidth size="small" placeholder="Enter"
                 value={form.country}
                 onChange={handleFormChange("country")}
                 sx={fieldSx}
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
-              <Typography variant="body2" sx={labelSx}>
-                No of Employees
-              </Typography>
+              <Typography variant="body2" sx={labelSx}>No of Employees</Typography>
               <TextField
-                fullWidth
-                size="small"
-                placeholder="Enter"
+                fullWidth size="small" placeholder="Enter"
                 value={form.noOfEmployees}
                 onChange={handleFormChange("noOfEmployees")}
                 sx={fieldSx}
               />
             </Grid>
             <Grid size={{ xs: 12, sm: 6 }}>
-              <Typography variant="body2" sx={labelSx}>
-                Annual Revenue
-              </Typography>
+              <Typography variant="body2" sx={labelSx}>Annual Revenue</Typography>
               <TextField
-                fullWidth
-                size="small"
-                placeholder="Enter"
+                fullWidth size="small" placeholder="Enter"
                 value={form.annualRevenue}
                 onChange={handleFormChange("annualRevenue")}
                 sx={fieldSx}
@@ -1100,9 +1067,7 @@ export default function CompaniesPage() {
                 Email <span style={{ color: "red" }}>*</span>
               </Typography>
               <TextField
-                fullWidth
-                size="small"
-                placeholder="Enter"
+                fullWidth size="small" placeholder="Enter"
                 value={form.email}
                 onChange={handleFormChange("email")}
                 error={!!formErrors.email}
@@ -1140,9 +1105,7 @@ export default function CompaniesPage() {
                   <MenuItem value="CA">🇨🇦 +1</MenuItem>
                 </Select>
                 <TextField
-                  fullWidth
-                  size="small"
-                  placeholder="Enter"
+                  fullWidth size="small" placeholder="Enter"
                   value={form.phoneNumber}
                   onChange={handleFormChange("phoneNumber")}
                   error={!!formErrors.phoneNumber}
@@ -1163,29 +1126,19 @@ export default function CompaniesPage() {
           }}
         >
           <Button
-            fullWidth
-            variant="outlined"
-            onClick={handleCloseModal}
+            fullWidth variant="outlined" onClick={handleCloseModal}
             sx={{
-              borderRadius: 2,
-              textTransform: "none",
-              fontWeight: 500,
-              borderColor: "#e0e0e0",
-              color: "#555",
+              borderRadius: 2, textTransform: "none", fontWeight: 500,
+              borderColor: "#e0e0e0", color: "#555",
             }}
           >
             Cancel
           </Button>
           <Button
-            fullWidth
-            variant="contained"
-            onClick={handleSave}
+            fullWidth variant="contained" onClick={handleSave}
             sx={{
-              borderRadius: 2,
-              textTransform: "none",
-              fontWeight: 600,
-              backgroundColor: "#6c63ff",
-              boxShadow: "none",
+              borderRadius: 2, textTransform: "none", fontWeight: 600,
+              backgroundColor: "#6c63ff", boxShadow: "none",
               "&:hover": { backgroundColor: "#574fd6", boxShadow: "none" },
             }}
           >

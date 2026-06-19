@@ -34,8 +34,8 @@ export const fetchNotifications = createAsyncThunk(
   'notifications/fetchAll',
   async (_, { getState, rejectWithValue }) => {
     try {
-      const state = getState() as { auth: { token: string | null } };
-      const token = state.auth.token;
+      const state = getState() as { auth: { access: string | null } };
+      const token = state.auth.access;
 
       if (!token) return rejectWithValue('No auth token found');
 
@@ -43,7 +43,7 @@ export const fetchNotifications = createAsyncThunk(
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Token ${token}`,
+          Authorization: `Bearer ${token}`,
         },
       });
 
@@ -60,8 +60,8 @@ export const markNotificationsAsRead = createAsyncThunk(
   'notifications/markAllRead',
   async (_, { getState, rejectWithValue }) => {
     try {
-      const state = getState() as { auth: { token: string | null } };
-      const token = state.auth.token;
+      const state = getState() as { auth: { access: string | null } };
+      const token = state.auth.access;
 
       if (!token) return rejectWithValue('No auth token found');
 
@@ -69,7 +69,7 @@ export const markNotificationsAsRead = createAsyncThunk(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Token ${token}`,
+          Authorization: `Bearer ${token}`,
         },
       });
 
@@ -86,8 +86,8 @@ export const clearAllNotifications = createAsyncThunk(
   'notifications/clearAll',
   async (_, { getState, rejectWithValue }) => {
     try {
-      const state = getState() as { auth: { token: string | null } };
-      const token = state.auth.token;
+      const state = getState() as { auth: { access: string | null } };
+      const token = state.auth.access;
 
       if (!token) return rejectWithValue('No auth token found');
 
@@ -95,7 +95,7 @@ export const clearAllNotifications = createAsyncThunk(
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Token ${token}`,
+          Authorization: `Bearer ${token}`,
         },
       });
 

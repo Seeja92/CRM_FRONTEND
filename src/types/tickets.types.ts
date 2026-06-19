@@ -23,12 +23,13 @@ export interface Ticket {
 
 export interface CreateTicketForm {
   ticketName:  string;
-  companyId:   string;
+  companyId?:  string
   dealId:      string;
   status:      string;
   source:      string;
   priority:    string;
   ownerId:     string;
+
 }
 
 export interface TicketFormErrors {

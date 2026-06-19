@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState,useEffect } from "react";
 import {
   Box,
   Card,
@@ -20,6 +20,8 @@ import {
 import { Visibility, VisibilityOff } from "@mui/icons-material";
 import Grid from "@mui/material/Grid2";
 import NextLink from "next/link";
+import { useDispatch, useSelector } from "react-redux";
+import { registerUser } from "@/store/slices/authSlice";
 import { useRouter } from "next/navigation";
 
 const industryOptions = [
@@ -33,14 +35,6 @@ const industryOptions = [
   "Other",
 ];
 
-const roleOptions = [
-  "Admin",
-  "Sales Manager",
-  "Sales Representative",
-  "Support Agent",
-  "Marketing Manager",
-  "Viewer",
-];
 
 interface FormData {
   firstName: string;
@@ -70,6 +64,9 @@ interface FormErrors {
 
 export default function RegisterPage() {
   const router = useRouter();
+  const dispatch = useDispatch();
+  const [adminExists, setAdminExists] = useState(false); 
+  const { loading, error: apiError } = useSelector((state: any) => state.auth);
   const [form, setForm] = useState<FormData>({
     firstName: "",
     lastName: "",
@@ -82,12 +79,34 @@ export default function RegisterPage() {
     password: "",
     confirmPassword: "",
   });
+ 
   const [errors, setErrors] = useState<FormErrors>({});
-  const [apiError, setApiError] = useState("");
   const [success, setSuccess] = useState("");
-  const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+
+  useEffect(() => {
+  const checkAdmin = async () => {
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_BASE_URL}/auth/admin-exists/`
+      );
+      const data = await res.json();
+      setAdminExists(data.admin_exists);
+    } catch (err) {
+      console.log("Failed to check admin");
+    }
+  };
+
+  checkAdmin();
+}, []);
+
+
+const roleOptions = [
+  { value: "Admin", disabled: adminExists },
+  { value: "User", disabled: false },
+];
 
   const handleChange =
     (field: keyof FormData) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -135,46 +154,35 @@ export default function RegisterPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setApiError("");
+    // setApiError("");
     setSuccess("");
     if (!validate()) return;
 
-    setLoading(true);
-    try {
-      const res = await fetch( `${process.env.NEXT_PUBLIC_API_BASE_URL}/auth/register/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          first_name: form.firstName,
-          last_name: form.lastName,
-          email: form.email,
-          phone_number: form.phoneNumber,
-          company_name: form.companyName,
-          industry_type: form.industryType,
-          country_or_region: form.countryOrRegion,
-          role: form.role,
-          password: form.password,
-          confirm_password: form.confirmPassword,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setApiError(data.email?.[0] || data.error || "Registration failed.");
-        return;
+ 
+try{
+  const resultAction = await dispatch(registerUser( 
+    {
+        first_name: form.firstName,
+        last_name: form.lastName,
+        email: form.email,
+        phone_number: form.phoneNumber,
+        company_name: form.companyName,
+        industry_type: form.industryType,
+        country_or_region: form.countryOrRegion,
+        role: form.role,
+        password: form.password,
+        confirm_password: form.confirmPassword,
       }
+  )as any).unwrap();
+   console.log("REGISTER SUCCESS:", resultAction);
 
-      setSuccess("Registration successful! Redirecting to login...");
-      setTimeout(() => router.push("/login"), 1500);
-    } catch (err: any) {
-      setApiError(
-        err?.response?.data?.message ||
-          "Registration failed. Please try again.",
-      );
-    } finally {
-      setLoading(false);
-    }
+    
+    setSuccess("Registration successful! Redirecting to login...");
+
+    setTimeout(() => router.push("/login"), 1500);
+  }catch (err: any) {
+  console.log("REGISTER ERROR:", err);
+}
   };
 
   const fieldSx = {
@@ -380,31 +388,27 @@ export default function RegisterPage() {
                   Role
                 </Typography>
                 <FormControl fullWidth error={!!errors.role}>
-                  <Select
-                    value={form.role}
-                    onChange={(e) => {
-                      setForm((prev) => ({ ...prev, role: e.target.value }));
-                      setErrors((prev) => ({ ...prev, role: "" }));
-                    }}
-                    displayEmpty
-                    sx={{
-                      borderRadius: 2,
-                      backgroundColor: "#fff",
-                      "& fieldset": { borderColor: "#e0e0e0" },
-                      "&:hover fieldset": { borderColor: "#b0b0b0" },
-                      "&.Mui-focused fieldset": { borderColor: "#6c63ff" },
-                      color: form.role ? "#1a1a2e" : "#b0b0b0",
-                    }}
-                  >
-                    <MenuItem value="" disabled>
-                      <span style={{ color: "#b0b0b0" }}>Select role</span>
-                    </MenuItem>
-                    {roleOptions.map((opt) => (
-                      <MenuItem key={opt} value={opt}>
-                        {opt}
-                      </MenuItem>
-                    ))}
-                  </Select>
+                 <Select
+  value={form.role}
+  onChange={(e) => {
+    setForm((prev) => ({ ...prev, role: e.target.value }));
+    setErrors((prev) => ({ ...prev, role: "" }));
+  }}
+  displayEmpty
+>
+  <MenuItem value="" disabled>
+    Select role
+  </MenuItem>
+
+  <MenuItem value="Admin" disabled={adminExists}>
+    Admin
+  </MenuItem>
+
+  <MenuItem value="User">
+    User
+  </MenuItem>
+</Select>
+                  
                   {errors.role && (
                     <FormHelperText>{errors.role}</FormHelperText>
                   )}

@@ -7,7 +7,6 @@ import {
   Button,
   TextField,
   InputAdornment,
-  Avatar,
   IconButton,
   Divider,
   Paper,
@@ -19,6 +18,9 @@ import {
   FormHelperText,
   Snackbar,
   Alert,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from "@mui/material";
 import Autocomplete from "@mui/material/Autocomplete";
 import Grid from "@mui/material/Grid2";
@@ -33,6 +35,7 @@ import {
   Event,
   Close,
 } from "@mui/icons-material";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import { useParams, useRouter } from "next/navigation";
 import ActivityPanel from "@/components/shared/activity/ActivityPanel";
 import Attachments from "@/components/shared/Attachments";
@@ -41,9 +44,16 @@ import { useMemo } from "react";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import CalendarTodayOutlined from "@mui/icons-material/CalendarTodayOutlined";
-
-const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
-const getToken = () => localStorage.getItem("token");
+import {
+  fetchCompanyById,
+  fetchUsers,
+  fetchCompanyActivities,
+  updateCompany,
+  clearSelectedCompany,
+} from "@/store/slices/companiesSlice";
+// ADD this separate import
+import { createCall } from "@/store/slices/activitySlice"; // ← ADD this
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
 const industryOptions = [
   "Legal Services",
@@ -92,19 +102,19 @@ export default function CompanyViewPage() {
   const router = useRouter();
   const params = useParams();
 
-  const [company, setCompany] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(0);
   const [activitySearch, setActivitySearch] = useState("");
   const [openCallForm, setOpenCallForm] = useState(false);
-  const [allActivities, setAllActivities] = useState<any[]>([]);
-  const [activityLoading, setActivityLoading] = useState(false);
+  const dispatch = useAppDispatch();
+  const company = useAppSelector((state) => state.companies.selectedCompany);
+  const loading = useAppSelector((state) => state.companies.loading);
+  const users = useAppSelector((state) => state.companies.users);
+  const allActivities = useAppSelector((state) => state.companies.activities);
 
   // ── Edit State ────────────────────────────────────────────────────────────────
   const [openEdit, setOpenEdit] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
   const [editErrors, setEditErrors] = useState<any>({});
-  const [users, setUsers] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   const [snackbar, setSnackbar] = useState({
     open: false,
@@ -114,168 +124,20 @@ export default function CompanyViewPage() {
 
   const companyId = Number(params?.id);
 
-  // ── Fetch Company ─────────────────────────────────────────────────────────────
-  const fetchCompany = async () => {
-    try {
-      setLoading(true);
-      const res = await fetch(`${BASE_URL}/companies/${companyId}/`, {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Token ${getToken()}`,
-        },
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setCompany(data);
-      } else {
-        setCompany(null);
-      }
-    } catch (err) {
-      console.error("Failed to fetch company:", err);
-      setCompany(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ── Fetch Users ───────────────────────────────────────────────────────────────
-  const fetchUsers = async () => {
-    try {
-      const res = await fetch(`${BASE_URL}/auth/users/`, {
-        headers: {
-          Authorization: `Token ${getToken()}`,
-        },
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        setUsers(Array.isArray(data) ? data : data.results || []);
-      } else {
-        setUsers([]);
-      }
-    } catch (err) {
-      console.error("Failed to fetch users:", err);
-      setUsers([]);
-    }
-  };
-
   useEffect(() => {
     if (companyId) {
-      fetchCompany();
-      fetchUsers();
-      fetchAllActivities();
+      dispatch(fetchCompanyById(companyId));
+      dispatch(fetchUsers());
+      dispatch(fetchCompanyActivities(companyId));
     }
+    return () => {
+      dispatch(clearSelectedCompany());
+    };
   }, [companyId]);
-  // ── Fetch all activities ─────────────────────────────────────────────────────
-  const fetchAllActivities = async () => {
-    try {
-      setActivityLoading(true);
 
-      const token = localStorage.getItem("token");
-
-      const headers = {
-        Authorization: `Token ${token}`,
-      };
-
-      const base = `${BASE_URL}/activities`;
-      const params = `?entity_type=company&entity_id=${companyId}`;
-
-      const [notes, calls, tasks, meetings, emails] = await Promise.all([
-        fetch(`${base}/notes/${params}`, { headers }).then((r) => r.json()),
-        fetch(`${base}/calls/${params}`, { headers }).then((r) => r.json()),
-        fetch(`${base}/tasks/${params}`, { headers }).then((r) => r.json()),
-        fetch(`${base}/meetings/${params}`, { headers }).then((r) => r.json()),
-        fetch(`${base}/emails/${params}`, { headers }).then((r) => r.json()),
-      ]);
-
-      const ticketsRes = await fetch(
-        `${BASE_URL}/tickets/?company_id=${companyId}`,
-        { headers },
-      );
-      const ticketsData = ticketsRes.ok ? await ticketsRes.json() : [];
-      const ticketsList = ticketsData.results || ticketsData || [];
-
-      const mapped = [
-        ...(notes.results || notes || []).map((n: any) => ({
-          id: `note-${n.id}`,
-          type: "Note",
-          title: n.content || "Note",
-          description: n.content || "",
-          assignee: n.created_by_name,
-          date: n.created_at,
-          isOverdue: false,
-          is_complete: false,
-        })),
-
-        ...(calls.results || calls || []).map((c: any) => ({
-          id: `call-${c.id}`,
-          type: "Call",
-          title: c.note || c.call_outcome || "Call",
-          description: c.call_outcome || "",
-          assignee: c.created_by_name,
-          date: c.created_at,
-          isOverdue: false,
-          is_complete: false,
-        })),
-
-        ...(tasks.results || tasks || []).map((t: any) => ({
-          id: `task-${t.id}`,
-          type: "Task",
-          title: t.task_name || "Task",
-          description: t.description || "",
-          assignee: t.assigned_to_name,
-          date: t.created_at,
-          dueDate: t.due_date,
-          is_complete: t.is_complete,
-          isOverdue: new Date(t.due_date) < new Date() && !t.is_complete,
-        })),
-
-        ...(meetings.results || meetings || []).map((m: any) => ({
-          id: `meeting-${m.id}`,
-          type: "Meeting",
-          title: m.title || "Meeting",
-          description: m.description || "",
-          assignee: m.created_by_name,
-          date: m.created_at,
-          isOverdue: false,
-          is_complete: false,
-        })),
-
-        ...(emails.results || emails || []).map((e: any) => ({
-          id: `email-${e.id}`,
-          type: "Email",
-          title: e.subject || "Email",
-          description: e.body || "",
-          assignee: e.created_by_name,
-          date: e.created_at,
-          isOverdue: false,
-          is_complete: false,
-        })),
-        // ── Ticket activities ──────────────────────────────────────────────
-        ...ticketsList.map((t: any) => ({
-          id: `ticket-${t.id}`,
-          type: "Ticket",
-          title: `${t.ticket_name} — ${t.status}`,
-          assignee: t.associated_deal?.associated_lead
-            ? `${t.associated_deal.associated_lead.first_name || ""} ${t.associated_deal.associated_lead.last_name || ""}`.trim()
-            : t.owner_name || "—",
-          date: t.created_at,
-          isOverdue: false,
-          is_complete: t.status === "Closed" || t.status === "Resolved",
-        })),
-      ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-      setAllActivities(mapped);
-    } catch (err) {
-      console.error("Failed to fetch activities:", err);
-      setAllActivities([]);
-    } finally {
-      setActivityLoading(false);
-    }
-  };
   // ── Open Edit Drawer ──────────────────────────────────────────────────────────
   const handleOpenEdit = () => {
+    if (!company) return;
     setEditForm({
       domainName: company.domain_name || "",
       companyName: company.company_name || "",
@@ -318,58 +180,37 @@ export default function CompanyViewPage() {
   // ── Save Edit ─────────────────────────────────────────────────────────────────
   const handleSaveEdit = async () => {
     if (!validateEdit()) return;
-
     setSaving(true);
-
     try {
-      const res = await fetch(`${BASE_URL}/companies/${companyId}/`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Token ${getToken()}`,
-        },
-        body: JSON.stringify({
-          domain_name: editForm.domainName,
-          company_name: editForm.companyName,
-          company_owner_ids: editForm.ownerIds,
-          industry: editForm.industry,
-          type: editForm.type,
-          city: editForm.city,
-          country: editForm.country,
-          no_of_employees: editForm.noOfEmployees,
-          annual_revenue: editForm.annualRevenue,
-          email: editForm.email,
-          phone_number: editForm.phoneNumber,
+      await dispatch(
+        updateCompany({
+          id: companyId,
+          payload: {
+            domain_name: editForm.domainName,
+            company_name: editForm.companyName,
+            company_owner_ids: editForm.ownerIds,
+            industry: editForm.industry,
+            type: editForm.type,
+            city: editForm.city,
+            country: editForm.country,
+            no_of_employees: editForm.noOfEmployees,
+            annual_revenue: editForm.annualRevenue,
+            email: editForm.email,
+            phone_number: editForm.phoneNumber,
+          },
         }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        setCompany(data);
-        setOpenEdit(false);
-
-        setSnackbar({
-          open: true,
-          message: "Company updated successfully!",
-          severity: "success",
-        });
-
-        fetchCompany();
-        fetchAllActivities();
-      } else {
-        setSnackbar({
-          open: true,
-          message: data.error || "Failed to update company.",
-          severity: "error",
-        });
-      }
-    } catch (err) {
-      console.error(err);
-
+      ).unwrap();
+      setOpenEdit(false);
       setSnackbar({
         open: true,
-        message: "Failed to update company. Please try again.",
+        message: "Company updated successfully!",
+        severity: "success",
+      });
+      dispatch(fetchCompanyActivities(companyId));
+    } catch (err: any) {
+      setSnackbar({
+        open: true,
+        message: err.message || "Failed to update.",
         severity: "error",
       });
     } finally {
@@ -377,29 +218,17 @@ export default function CompanyViewPage() {
     }
   };
 
-  const filteredActivities = Array.isArray(allActivities)
-    ? allActivities.filter((activity) => {
-        const title = activity.title || "";
-        const description = activity.description || "";
-
-        return (
-          title.toLowerCase().includes(activitySearch.toLowerCase()) ||
-          description.toLowerCase().includes(activitySearch.toLowerCase())
-        );
-      })
-    : [];
   const activityColors: Record<string, string> = {
-    Task: "#6c63ff",
-    Call: "#4caf50",
-    Meeting: "#2196f3",
-    Email: "#ff9800",
-    Note: "#9c27b0",
-    Ticket: "#1e1818",
+    Task: "#1a1a2e",
+    Call: "#1a1a2e",
+    Meeting: "#1a1a2e",
+    Email: "#1a1a2e",
+    Note: "#1a1a2e",
+    Ticket: "#1a1a2e",
   };
 
   const groupByMonth = (activities: any[]) => {
     const groups: Record<string, any[]> = {};
-
     activities
       .filter((a) => !a.isOverdue)
       .forEach((a) => {
@@ -407,11 +236,9 @@ export default function CompanyViewPage() {
           month: "long",
           year: "numeric",
         });
-
         if (!groups[month]) groups[month] = [];
         groups[month].push(a);
       });
-
     return groups;
   };
 
@@ -425,9 +252,9 @@ export default function CompanyViewPage() {
       hour12: true,
     });
 
+  // ── Activity Content ──────────────────────────────────────────────────────────
   const companyActivityContent = useMemo(() => {
     const upcomingActivities = allActivities.filter((a) => a.isOverdue);
-
     const groupedActivities = groupByMonth(allActivities);
 
     const filteredUpcoming = upcomingActivities.filter(
@@ -439,7 +266,7 @@ export default function CompanyViewPage() {
 
     return (
       <Box>
-        {/* Upcoming */}
+        {/* ── Upcoming ── */}
         <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 1.5 }}>
           Upcoming
         </Typography>
@@ -471,18 +298,15 @@ export default function CompanyViewPage() {
                   <span style={{ fontWeight: 600 }}>{activity.type}</span>{" "}
                   assigned to {activity.assignee}
                 </Typography>
-
                 <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                   <CalendarTodayOutlined
                     sx={{ fontSize: 13, color: "#e53935" }}
                   />
-
                   <Typography sx={{ fontSize: 12, color: "#e53935" }}>
                     Overdue · {activity.dueDate}
                   </Typography>
                 </Box>
               </Box>
-
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                 {activity.is_complete ? (
                   <CheckCircleIcon sx={{ fontSize: 18, color: "#4caf50" }} />
@@ -491,7 +315,6 @@ export default function CompanyViewPage() {
                     sx={{ fontSize: 18, color: "#aaa" }}
                   />
                 )}
-
                 <Typography
                   sx={{
                     fontSize: 13,
@@ -503,7 +326,6 @@ export default function CompanyViewPage() {
                 >
                   {activity.title}
                 </Typography>
-
                 {activity.is_complete && (
                   <Typography
                     sx={{
@@ -524,7 +346,7 @@ export default function CompanyViewPage() {
           ))
         )}
 
-        {/* Grouped Activities */}
+        {/* ── Grouped Activities with Accordion ── */}
         {Object.entries(groupedActivities).map(([month, activities]) => {
           const filtered = activities.filter(
             (a: any) =>
@@ -540,41 +362,57 @@ export default function CompanyViewPage() {
           return (
             <Box key={month}>
               <Typography
-                sx={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  mt: 2,
-                  mb: 1.5,
-                }}
+                sx={{ fontSize: 13, fontWeight: 600, mt: 2, mb: 1.5 }}
               >
                 {month}
               </Typography>
 
+              {/* ── Accordion Activity Items ── */}
               {filtered.map((activity: any) => (
-                <Box
+                <Accordion
                   key={activity.id}
+                  elevation={0}
                   sx={{
                     border: "1px solid #eee",
-                    borderRadius: 2,
-                    p: 1.5,
+                    borderRadius: "8px !important",
                     mb: 1.5,
+                    "&:before": { display: "none" },
+                    "&.Mui-expanded": { mb: 1.5 },
                   }}
                 >
-                  <Box
+                  <AccordionSummary
+                    expandIcon={
+                      <ExpandMoreIcon sx={{ fontSize: 16, color: "#aaa" }} />
+                    }
                     sx={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "flex-start",
+                      px: 1.5,
+                      py: 0,
+                      minHeight: "44px !important",
+                      flexDirection: "row-reverse", // ← moves arrow to left
+                      gap: 1,
+                      "& .MuiAccordionSummary-content": {
+                        my: "10px !important",
+                      },
+                      "& .MuiAccordionSummary-expandIconWrapper": {
+                        transform: "rotate(-90deg)", // ← points right when collapsed
+                        "&.Mui-expanded": { transform: "rotate(0deg)" }, // ← points down when expanded
+                      },
                     }}
                   >
-                    <Box sx={{ flex: 1 }}>
-                      {/* ── Type header ── */}
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        width: "100%",
+                        pr: 1,
+                      }}
+                    >
                       <Typography
                         sx={{
                           fontSize: 13,
                           fontWeight: 600,
                           color: activityColors[activity.type] || "#6c63ff",
-                          mb: 0.5,
                         }}
                       >
                         {activity.type === "Ticket"
@@ -584,96 +422,96 @@ export default function CompanyViewPage() {
                           ? ` from ${activity.assignee}`
                           : " tracking"}
                       </Typography>
+                      <Typography
+                        sx={{
+                          fontSize: 12,
+                          color: "#aaa",
+                          whiteSpace: "nowrap",
+                          ml: 2,
+                        }}
+                      >
+                        {formatDate(activity.date)}
+                      </Typography>
+                    </Box>
+                  </AccordionSummary>
 
-                      {/* ── Content ── */}
-                      {activity.type === "Ticket" ? (
-                        <Box>
-                          <Typography sx={{ fontSize: 13, color: "#555" }}>
-                            <span style={{ fontWeight: 500 }}>
-                              {activity.assignee}
-                            </span>{" "}
-                            created{" "}
-                            <span style={{ fontWeight: 600 }}>
-                              {activity.title}
-                            </span>
-                          </Typography>
-                          {activity.is_complete && (
-                            <Typography
-                              sx={{
-                                fontSize: 11,
-                                color: "#4caf50",
-                                fontWeight: 600,
-                                bgcolor: "#e8f5e9",
-                                px: 1,
-                                py: 0.2,
-                                borderRadius: 1,
-                                display: "inline-block",
-                                mt: 0.5,
-                              }}
-                            >
-                              Resolved
-                            </Typography>
-                          )}
-                        </Box>
-                      ) : activity.type === "Task" ? (
-                        <Box
-                          sx={{ display: "flex", alignItems: "center", gap: 1 }}
-                        >
-                          {activity.is_complete ? (
-                            <CheckCircleIcon
-                              sx={{ fontSize: 18, color: "#4caf50" }}
-                            />
-                          ) : (
-                            <RadioButtonUncheckedIcon
-                              sx={{ fontSize: 18, color: "#aaa" }}
-                            />
-                          )}
+                  <AccordionDetails sx={{ px: 1.5, pt: 0, pb: 1.5 }}>
+                    {activity.type === "Ticket" ? (
+                      <Box>
+                        <Typography sx={{ fontSize: 13, color: "#555" }}>
+                          <span style={{ fontWeight: 500 }}>
+                            {activity.assignee}
+                          </span>{" "}
+                          created{" "}
+                          <span style={{ fontWeight: 600 }}>
+                            {activity.title}
+                          </span>
+                        </Typography>
+                        {activity.is_complete && (
                           <Typography
                             sx={{
-                              fontSize: 13,
-                              color: activity.is_complete ? "#aaa" : "#555",
-                              textDecoration: activity.is_complete
-                                ? "line-through"
-                                : "none",
+                              fontSize: 11,
+                              color: "#4caf50",
+                              fontWeight: 600,
+                              bgcolor: "#e8f5e9",
+                              px: 1,
+                              py: 0.2,
+                              borderRadius: 1,
+                              display: "inline-block",
+                              mt: 0.5,
                             }}
                           >
-                            {activity.title}
+                            Resolved
                           </Typography>
-                          {activity.is_complete && (
-                            <Typography
-                              sx={{
-                                fontSize: 11,
-                                color: "#4caf50",
-                                fontWeight: 600,
-                                bgcolor: "#e8f5e9",
-                                px: 1,
-                                py: 0.2,
-                                borderRadius: 1,
-                              }}
-                            >
-                              Finished
-                            </Typography>
-                          )}
-                        </Box>
-                      ) : (
-                        <Typography sx={{ fontSize: 13, color: "#555" }}>
+                        )}
+                      </Box>
+                    ) : activity.type === "Task" ? (
+                      <Box
+                        sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                      >
+                        {activity.is_complete ? (
+                          <CheckCircleIcon
+                            sx={{ fontSize: 18, color: "#4caf50" }}
+                          />
+                        ) : (
+                          <RadioButtonUncheckedIcon
+                            sx={{ fontSize: 18, color: "#aaa" }}
+                          />
+                        )}
+                        <Typography
+                          sx={{
+                            fontSize: 13,
+                            color: activity.is_complete ? "#aaa" : "#555",
+                            textDecoration: activity.is_complete
+                              ? "line-through"
+                              : "none",
+                          }}
+                        >
                           {activity.title}
                         </Typography>
-                      )}
-                    </Box>
-
-                    <Typography
-                      sx={{
-                        fontSize: 12,
-                        color: "#aaa",
-                        whiteSpace: "nowrap",
-                        ml: 2,
-                      }}
-                    >
-                      {formatDate(activity.date)}
-                    </Typography>
-                  </Box>
-                </Box>
+                        {activity.is_complete && (
+                          <Typography
+                            sx={{
+                              fontSize: 11,
+                              color: "#4caf50",
+                              fontWeight: 600,
+                              bgcolor: "#e8f5e9",
+                              px: 1,
+                              py: 0.2,
+                              borderRadius: 1,
+                            }}
+                          >
+                            Finished
+                          </Typography>
+                        )}
+                      </Box>
+                    ) : (
+                      <Typography sx={{ fontSize: 13, color: "#555" }}>
+                        {activity.title}
+                      </Typography>
+                    )}
+                  </AccordionDetails>
+                </Accordion>
               ))}
             </Box>
           );
@@ -681,12 +519,7 @@ export default function CompanyViewPage() {
 
         {allActivities.length === 0 && (
           <Typography
-            sx={{
-              fontSize: 13,
-              color: "#aaa",
-              textAlign: "center",
-              mt: 3,
-            }}
+            sx={{ fontSize: 13, color: "#aaa", textAlign: "center", mt: 3 }}
           >
             No activities yet.
           </Typography>
@@ -727,7 +560,7 @@ export default function CompanyViewPage() {
 
   return (
     <Box sx={{ display: "flex", gap: 2 }}>
-      {/* Left Panel */}
+      {/* ── Left Panel ── */}
       <Box sx={{ width: 220, flexShrink: 0 }}>
         {/* Back */}
         <Button
@@ -746,36 +579,36 @@ export default function CompanyViewPage() {
           Companies
         </Button>
 
-        {/* Company Header */}
+        {/* Company Header — Square Box + Name side by side */}
         <Box
           sx={{
             display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-start",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 1.5,
             mb: 2,
           }}
         >
-          <Avatar
-            sx={{
-              width: 56,
-              height: 56,
-              mb: 1,
-              backgroundColor: "#e8e8e8",
-              color: "#888",
-              fontSize: 20,
-            }}
-          >
-            {company?.company_name?.[0] || "C"}
-          </Avatar>
-          <Typography sx={{ fontWeight: 700, fontSize: 16, color: "#1a1a2e" }}>
-            {company.company_name}
-          </Typography>
-          <Typography sx={{ fontSize: 12, color: "#888" }}>
-            {company.industry}
-          </Typography>
+          {/* Grey square box — no letter */}
           <Box
-            sx={{ display: "flex", alignItems: "center", gap: 0.5, mt: 0.5 }}
-          >
+            sx={{
+              width: 48,
+              height: 48,
+              flexShrink: 0,
+              backgroundColor: "#e8e8e8",
+              borderRadius: 2,
+            }}
+          />
+          {/* Name and details */}
+          <Box>
+            <Typography
+              sx={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}
+            >
+              {company.company_name}
+            </Typography>
+            <Typography sx={{ fontSize: 12, color: "#888" }}>
+              {company.industry}
+            </Typography>
             <Typography sx={{ fontSize: 12, color: "#6c63ff" }}>
               {company.domain_name}
             </Typography>
@@ -789,9 +622,7 @@ export default function CompanyViewPage() {
               key={btn.label}
               onClick={() => {
                 setActiveTab(btn.tabIndex);
-                if (btn.label === "Call") {
-                  setOpenCallForm(true);
-                }
+                if (btn.label === "Call") setOpenCallForm(true);
               }}
               sx={{
                 display: "flex",
@@ -885,7 +716,7 @@ export default function CompanyViewPage() {
         ))}
       </Box>
 
-      {/* Middle Panel - Activity */}
+      {/* ── Middle Panel - Activity ── */}
       <Box sx={{ flex: 1 }}>
         <TextField
           fullWidth
@@ -924,7 +755,7 @@ export default function CompanyViewPage() {
         />
       </Box>
 
-      {/* Right Panel */}
+      {/* ── Right Panel ── */}
       <Box sx={{ width: 220, flexShrink: 0 }}>
         <Paper
           elevation={0}
@@ -956,25 +787,24 @@ export default function CompanyViewPage() {
               AI Company Summary
             </Typography>
           </Box>
+         
           <Typography sx={{ fontSize: 12, color: "#888", lineHeight: 1.6 }}>
-            There are no activities associated with this company and further
-            details are needed to provide a comprehensive summary.
+            {allActivities.length > 0
+              ? `This company has ${allActivities.length} activities. Latest: ${allActivities[0]?.type} — ${allActivities[0]?.title}`
+              : "There are no activities associated with this company and further details are needed to provide a comprehensive summary."}
           </Typography>
         </Paper>
 
         <Attachments entityType="company" entityId={Number(companyId)} />
       </Box>
 
-      {/* Edit Company Drawer */}
+      {/* ── Edit Company Drawer ── */}
       <Drawer
         anchor="right"
         open={openEdit}
         onClose={() => setOpenEdit(false)}
-        PaperProps={{
-          sx: { width: { xs: "100%", sm: 420 }, p: 0 },
-        }}
+        PaperProps={{ sx: { width: { xs: "100%", sm: 420 }, p: 0 } }}
       >
-        {/* Drawer Header */}
         <Box
           sx={{
             display: "flex",
@@ -997,7 +827,6 @@ export default function CompanyViewPage() {
           </IconButton>
         </Box>
 
-        {/* Drawer Content */}
         <Box sx={{ px: 3, py: 2, overflowY: "auto", flex: 1 }}>
           <Grid container spacing={2}>
             <Grid size={{ xs: 12 }}>
@@ -1042,7 +871,6 @@ export default function CompanyViewPage() {
               />
             </Grid>
 
-            {/* Company Owner */}
             <Grid size={{ xs: 12 }}>
               <Typography variant="body2" sx={labelSx}>
                 Company Owner <span style={{ color: "red" }}>*</span>
@@ -1278,7 +1106,6 @@ export default function CompanyViewPage() {
           </Grid>
         </Box>
 
-        {/* Drawer Footer */}
         <Box
           sx={{
             px: 3,
@@ -1321,38 +1148,35 @@ export default function CompanyViewPage() {
         </Box>
       </Drawer>
 
+      {/* ── Call Form ── */}
       <CallForm
         open={openCallForm}
         onClose={() => setOpenCallForm(false)}
         defaultContact={company?.company_name || ""}
-        defaultPhone={company?.phone || company?.phone_number || ""}
+        defaultPhone={company?.phone_number || ""}
         onSave={async (data) => {
-          const token = localStorage.getItem("token");
-          await fetch(
-            `${process.env.NEXT_PUBLIC_API_BASE_URL}/activities/calls/`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Token ${token}`,
-              },
-              body: JSON.stringify({
-                entity_type: "company", // ← changed from "lead"
-                entity_id: company.id, // ← changed from lead.id
-                connected: data.connected,
-                call_outcome: data.callOutcome,
-                date: data.date,
-                time: data.time,
-                note: data.note,
-              }),
-            },
-          );
-          setOpenCallForm(false);
-          fetchAllActivities();
+          try {
+            const payload = {
+              entity_type: "company",
+              entity_id: company?.id,
+              connected: data.connected,
+              call_outcome: data.callOutcome,
+              date: data.date,
+              time: data.time,
+              note: data.note,
+            };
+
+            const result = await dispatch(createCall(payload)).unwrap();
+
+            setOpenCallForm(false);
+            dispatch(fetchCompanyActivities(companyId));
+          } catch (error) {
+            console.error("Company Call Error:", error);
+          }
         }}
       />
 
-      {/* Snackbar */}
+      {/* ── Snackbar ── */}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={3000}

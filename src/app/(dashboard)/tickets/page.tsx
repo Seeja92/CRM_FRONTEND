@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   Box,
   Typography,
@@ -38,12 +38,15 @@ import AddIcon from "@mui/icons-material/Add";
 import FileUploadOutlinedIcon from "@mui/icons-material/FileUploadOutlined";
 import Close from "@mui/icons-material/Close";
 import { useRouter } from "next/navigation";
+import CreatedDateFilter from "@/components/filters/CreatedDateFilter";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { Dayjs } from "dayjs";
 import {
   fetchTickets,
   createTicket,
   updateTicket,
   deleteTicket,
+  importTickets,
 } from "@/store/slices/ticketsSlice";
 import {
   Ticket,
@@ -123,12 +126,13 @@ const sourceOptions = ["Chat", "Email", "Phone", "Zoom", "Meeting"];
 
 const initialForm: CreateTicketForm = {
   ticketName: "",
-  companyId: "",
+
   dealId: "",
   status: "",
   source: "",
   priority: "",
   ownerId: "",
+
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -136,10 +140,8 @@ const TicketsPage = () => {
   const router = useRouter();
   const dispatch = useAppDispatch();
   const importRef = useRef<HTMLInputElement>(null);
-
   const tickets = useAppSelector((state) => state.tickets.tickets) as Ticket[];
   const loading = useAppSelector((state) => state.tickets.loading);
-
   const [companies, setCompanies] = useState<any[]>([]);
   const [deals, setDeals] = useState<any[]>([]);
   const [owners, setOwners] = useState<any[]>([]);
@@ -149,19 +151,21 @@ const TicketsPage = () => {
   const [statusFilter, setStatusFilter] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
-  const [ownerFilter, setOwnerFilter] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState<string>("");
+  const [cityFilter, setCityFilter] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [openDrawer, setOpenDrawer] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<CreateTicketForm>(initialForm);
   const [formErrors, setFormErrors] = useState<TicketFormErrors>({});
+  const [createdDateFilter, setCreatedDateFilter] = useState<string>("");
+  const [selectedDate, setSelectedDate] = useState<Dayjs | null>(null);
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: "",
     severity: "success" as "success" | "error",
   });
-
-  // ── Fetch Tickets ─────────────────────────────────────────────────────────
+  // ── Fetch Tickets ─────────────────────────────────────────
   const fetchAllTickets = () => {
     dispatch(
       fetchTickets({
@@ -169,10 +173,43 @@ const TicketsPage = () => {
         status: statusFilter,
         priority: priorityFilter,
         source: sourceFilter,
-        owner: ownerFilter,
-      }),
+        owner: ownerFilter ? Number(ownerFilter) : undefined,
+        date_from: selectedDate
+          ? selectedDate.format("YYYY-MM-DD")
+          : undefined,
+        date_to: selectedDate
+          ? selectedDate.format("YYYY-MM-DD")
+          : undefined,
+      })
     );
   };
+
+  const loadTickets = () => {
+    console.log({
+      date_from: selectedDate?.format("YYYY-MM-DD"),
+      date_to: selectedDate?.format("YYYY-MM-DD"),
+    });
+    dispatch(
+      fetchTickets({
+        search,
+        status: statusFilter,
+        priority: priorityFilter,
+        source: sourceFilter,
+        owner: ownerFilter ? Number(ownerFilter) : undefined,
+        city: cityFilter || undefined,
+        date_from: selectedDate
+          ? selectedDate.format("YYYY-MM-DD")
+          : undefined,
+        date_to: selectedDate
+          ? selectedDate.format("YYYY-MM-DD")
+          : undefined,
+      })
+    );
+  };
+
+  useEffect(() => {
+    loadTickets();
+  }, [search, statusFilter, priorityFilter, sourceFilter, ownerFilter, selectedDate, cityFilter]);
 
   // ── Fetch Companies ───────────────────────────────────────────────────────
   const fetchCompanies = async () => {
@@ -240,15 +277,15 @@ const TicketsPage = () => {
   };
 
   useEffect(() => {
-    fetchAllTickets();
     fetchCompanies();
     fetchDeals();
     fetchOwners();
   }, []);
 
-  useEffect(() => {
-    fetchAllTickets();
-  }, [search, statusFilter, priorityFilter, sourceFilter, ownerFilter]);
+  // useEffect(() => {
+  //   fetchAllTickets();
+  // }, [search, statusFilter, priorityFilter, sourceFilter, ownerFilter]);
+
 
   // ── Pagination ────────────────────────────────────────────────────────────
   const totalPages = Math.ceil(tickets.length / ITEMS_PER_PAGE);
@@ -303,28 +340,23 @@ const TicketsPage = () => {
     );
     // ── Fallback: match directly from ticket.company_name ──
     const matchedCompany = companies.find(
-      (c) => c.company_name === ticket.company_name,
+      (c) => c.company_name === ticket.company_name
     );
     // ── Find owner ID ──
     const matchedOwner = owners.find((o) => o.name === ticket.owner_name);
 
     setForm({
       ticketName: ticket.ticket_name,
-
-      companyId: companyFromDeal
-        ? String(companyFromDeal.id) // ← from deal → lead → company
-        : matchedCompany
-          ? String(matchedCompany.id) // ← fallback from ticket
-          : "",
+      companyId: "", // temporary fix
       dealId: matchedDeal ? String(matchedDeal.id) : "",
       status: ticket.status,
       source: ticket.source,
       priority: ticket.priority,
       ownerId: matchedOwner ? String(matchedOwner.id) : "",
     });
+    setFormErrors({});
     setOpenDrawer(true);
   };
-
   // ── Open Create Drawer ────────────────────────────────────────────────────
   const handleCreateClick = () => {
     setEditId(null);
@@ -354,7 +386,7 @@ const TicketsPage = () => {
       source: form.source,
       priority: form.priority,
       ticket_owner_id: form.ownerId ? Number(form.ownerId) : null,
-      company_id: form.companyId ? Number(form.companyId) : null,
+
       deal_id: form.dealId ? Number(form.dealId) : null,
     };
     try {
@@ -395,56 +427,79 @@ const TicketsPage = () => {
   };
 
   // ── Import CSV ────────────────────────────────────────────────────────────
+  // const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  //   const file = e.target.files?.[0];
+
+  //   if (!file) return;
+
+  //   const formData = new FormData();
+  //   formData.append("file", file);
+
+  //   try {
+  //     const token = localStorage.getItem("token");
+  //     const res = await fetch(
+  //       `${process.env.NEXT_PUBLIC_API_BASE_URL}/tickets/import/`,
+  //       {
+  //         method: "POST",
+  //         headers: {
+  //           Authorization: `Token ${token}`,
+  //         },
+  //         body: formData,
+  //       },
+  //     );
+
+  //     const data = await res.json();
+
+  //     if (res.ok) {
+  //       setSnackbar({
+  //         open: true,
+  //         message: `${data.imported_count} tickets imported successfully!`,
+  //         severity: "success",
+  //       });
+
+  //       fetchAllTickets();
+  //     } else {
+  //       setSnackbar({
+  //         open: true,
+  //         message: data.detail || "Import failed",
+  //         severity: "error",
+  //       });
+  //     }
+  //   } catch (err) {
+  //     console.error(err);
+
+  //     setSnackbar({
+  //       open: true,
+  //       message: "Import failed",
+  //       severity: "error",
+  //     });
+  //   }
+
+  //   e.target.value = "";
+  // };
   const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-
     if (!file) return;
-
-    const formData = new FormData();
-    formData.append("file", file);
-
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/tickets/import/`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Token ${token}`,
-          },
-          body: formData,
-        },
-      );
-
-      const data = await res.json();
-
-      if (res.ok) {
-        setSnackbar({
-          open: true,
-          message: `${data.imported_count} tickets imported successfully!`,
-          severity: "success",
-        });
-
-        fetchAllTickets();
-      } else {
-        setSnackbar({
-          open: true,
-          message: data.detail || "Import failed",
-          severity: "error",
-        });
-      }
-    } catch (err) {
-      console.error(err);
-
+      const result = await dispatch(importTickets(file)).unwrap();
       setSnackbar({
         open: true,
-        message: "Import failed",
-        severity: "error",
+        message: `${result.imported_count} tickets imported successfully!`,
+        severity: 'success',
+      });
+      fetchAllTickets();
+    } catch (err: any) {
+      setSnackbar({
+        open: true,
+        message: err.message || 'Import failed',
+        severity: 'error',
       });
     }
-
-    e.target.value = "";
+    e.target.value = '';
   };
+  useEffect(() => {
+    console.log("ownerFilter changed:", ownerFilter);
+  }, [ownerFilter]);
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
@@ -520,7 +575,7 @@ const TicketsPage = () => {
         }}
       >
         <TextField
-          placeholder="Search name, owner, company"
+          placeholder="Search  name, owner, city, company"
           size="small"
           value={search}
           onChange={(e) => {
@@ -583,25 +638,19 @@ const TicketsPage = () => {
       <Box sx={{ display: "flex", gap: 1.5, mb: 2, flexWrap: "wrap" }}>
         <FormControl size="small" sx={filterSx}>
           <Select
-            value={ownerFilter}
+            value={String(ownerFilter)}
             onChange={(e) => {
-              setOwnerFilter(e.target.value);
+              const val = String(e.target.value);
+              setOwnerFilter(val);
               setPage(1);
             }}
             displayEmpty
             renderValue={(value) => {
               if (value === "")
-                return (
-                  <span style={{ color: "#1a1a2e", fontSize: 13 }}>
-                    Ticket Owner
-                  </span>
-                );
+                return <span style={{ color: "#1a1a2e", fontSize: 13 }}>Ticket Owner</span>;
+
               const owner = owners.find((o) => String(o.id) === String(value));
-              return (
-                <span style={{ color: "#1a1a2e", fontSize: 13 }}>
-                  {owner?.name || String(value)}
-                </span>
-              );
+              return <span style={{ fontSize: 13 }}>{owner?.name || value}</span>;
             }}
           >
             <MenuItem value="">All</MenuItem>
@@ -663,22 +712,20 @@ const TicketsPage = () => {
             ))}
           </Select>
         </FormControl>
-        <Button
-          size="small"
-          variant="outlined"
-          endIcon={<CalendarTodayIcon sx={{ fontSize: 14 }} />}
-          sx={{
-            borderRadius: 1.5,
-            textTransform: "none",
-            fontSize: 13,
-            borderColor: "#E5E7EB",
-            color: "#6B7280",
-            px: 1.5,
-            backgroundColor: "#fff",
+
+        
+
+        <CreatedDateFilter
+          value={selectedDate}
+          onChange={(date) => setSelectedDate(date)}
+          onClear={() => {
+            setSelectedDate(null);
+            fetchTickets();
           }}
-        >
-          Created Date
-        </Button>
+          onApply={() => {
+            fetchTickets();
+          }}
+        />
       </Box>
 
       {/* ── Loading ── */}
@@ -939,36 +986,6 @@ const TicketsPage = () => {
                 helperText={formErrors.ticketName}
                 sx={fieldSx}
               />
-            </Grid>
-
-            {/* Company */}
-            <Grid size={{ xs: 12 }}>
-              <Typography variant="body2" sx={labelSx}>
-                Company Name
-              </Typography>
-              <FormControl fullWidth size="small">
-                <Select
-                  value={form.companyId}
-                  onChange={(e) =>
-                    setForm((p) => ({ ...p, companyId: e.target.value }))
-                  }
-                  displayEmpty
-                  sx={{
-                    borderRadius: 1.5,
-                    backgroundColor: "#fff",
-                    "& fieldset": { borderColor: "#e0e0e0" },
-                  }}
-                >
-                  <MenuItem value="">
-                    <span style={{ color: "#b0b0b0" }}>Choose Company</span>
-                  </MenuItem>
-                  {companies.map((c) => (
-                    <MenuItem key={c.id} value={String(c.id)}>
-                      {c.company_name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
             </Grid>
 
             {/* Deal */}

@@ -1,6 +1,11 @@
+
+
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useDispatch, useSelector } from "react-redux"; // <-- Added Redux hooks
+import { fetchUsers } from "@/store/slices/usersSlice"; // <-- Update path to your slice file
+import { RootState, AppDispatch } from "@/store/index"; // <-- Update path to your root store file
 import {
   Dialog,
   DialogTitle,
@@ -31,9 +36,12 @@ import FormatUnderlinedIcon from "@mui/icons-material/FormatUnderlined";
 import FormatListBulletedIcon from "@mui/icons-material/FormatListBulleted";
 import FormatListNumberedIcon from "@mui/icons-material/FormatListNumbered";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
+import { User } from "@/store/slices/usersSlice";
 
 interface MeetingFormProps {
   open: boolean;
+  entity?: any;
+  entityType?: "lead" | "deal" | "ticket" | "company";
   onClose: () => void;
   onSave: (data: MeetingData) => void;
 }
@@ -59,11 +67,19 @@ const reminderOptions = [
   "1 day before",
 ];
 
+
 export default function MeetingForm({
   open,
   onClose,
   onSave,
+  entity,
+  entityType,
 }: MeetingFormProps) {
+  const dispatch = useDispatch<AppDispatch>();
+  
+  // Consume users array straight from Redux state management
+  const { users } = useSelector((state: RootState) => state.users);
+
   const startDateRef = useRef<HTMLInputElement>(null);
   const startTimeRef = useRef<HTMLInputElement>(null);
   const endTimeRef = useRef<HTMLInputElement>(null);
@@ -76,6 +92,49 @@ export default function MeetingForm({
   const [reminder, setReminder] = useState("");
   const [note, setNote] = useState("");
   const [formats, setFormats] = useState<string[]>([]);
+
+  const getEntityAttendeeName = () => {
+  switch (entityType) {
+    case "lead":
+      return entity?.name || "";
+
+    case "company":
+      return entity?.company_name || "";
+
+    case "deal":
+      return (
+        entity?.lead_name ||
+        entity?.associated_lead?.name ||
+        `${entity?.associated_lead?.first_name || ""} ${
+          entity?.associated_lead?.last_name || ""
+        }`.trim()
+      );
+
+    case "ticket":
+      return (
+        entity?.associated_deal?.associated_lead?.name ||
+        `${entity?.associated_deal?.associated_lead?.first_name || ""} ${
+          entity?.associated_deal?.associated_lead?.last_name || ""
+        }`.trim()
+      );
+
+    default:
+      return "";
+  }
+};
+
+
+const attendeeOptions = [
+  getEntityAttendeeName(),
+  ...users.map((u) => u.name),
+].filter(Boolean);
+
+  // Only dispatch the action when the form is opened and state needs resolving
+  useEffect(() => {
+    if (open) {
+      dispatch(fetchUsers());
+    }
+  }, [dispatch, open]);
 
   const handleSave = () => {
     if (!title.trim()) return;
@@ -104,27 +163,6 @@ export default function MeetingForm({
     setFormats([]);
     onClose();
   };
-  const [users, setUsers] = useState<{ id: number; name: string }[]>([]);
-
-  useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        const token = localStorage.getItem("token");
-        const res = await fetch( `${process.env.NEXT_PUBLIC_API_BASE_URL}/auth/users/`, {
-          headers: { Authorization: `Token ${token}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setUsers(
-            (data.results || data).filter((u: any) => u.name.trim() !== ""),
-          );
-        }
-      } catch (err) {
-        console.error("Failed to fetch users:", err);
-      }
-    };
-    fetchUsers();
-  }, []);
 
   return (
     <Dialog
@@ -183,33 +221,6 @@ export default function MeetingForm({
         </Box>
 
         {/* ── Start Date ── */}
-        {/* <Box sx={{ mb: 2 }}>
-          <Typography sx={{ fontSize: 13, fontWeight: 500, mb: 0.8 }}>
-            Start Date <span style={{ color: "red" }}>*</span>
-          </Typography>
-          <TextField
-            fullWidth
-            size="small"
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            slotProps={{
-              input: {
-                endAdornment: (
-                  <CalendarTodayOutlinedIcon
-                    sx={{ fontSize: 16, color: "#aaa" }}
-                  />
-                ),
-              },
-            }}
-            sx={{
-              "& .MuiOutlinedInput-root": { borderRadius: 1.5, fontSize: 13 },
-              "& input[type='date']::-webkit-calendar-picker-indicator": {
-                display: "none",
-              },
-            }}
-          />
-        </Box> */}
         <Box sx={{ mb: 2 }}>
           <Typography sx={{ fontSize: 13, fontWeight: 500, mb: 0.8 }}>
             Start Date <span style={{ color: "red" }}>*</span>
@@ -305,68 +316,11 @@ export default function MeetingForm({
           </Box>
         </Box>
 
+        {/* ── Attendees ── */}
         <Box sx={{ mb: 2 }}>
           <Typography sx={{ fontSize: 13, fontWeight: 500, mb: 0.8 }}>
             Attendees <span style={{ color: "red" }}>*</span>
           </Typography>
-          {/* <Select
-    fullWidth
-    size="small"
-    multiple
-    displayEmpty
-    value={attendees}
-    onChange={(e) => setAttendees(e.target.value as string[])}
-    input={<OutlinedInput />}
-    IconComponent={KeyboardArrowDownIcon}
-    renderValue={(selected) => {
-      if ((selected as string[]).length === 0) {
-        return <span style={{ color: "#9CA3AF" }}>Choose</span>;
-      }
-      return (
-        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
-          {(selected as string[]).map((val) => (
-            <Chip
-              key={val}
-              label={val}
-              size="small"
-              onDelete={(e) => {
-                e.stopPropagation();
-                setAttendees(attendees.filter((a) => a !== val));
-              }}
-              onMouseDown={(e) => e.stopPropagation()}
-              sx={{
-                fontSize: 11,
-                height: 22,
-                bgcolor: "#EDE9FE",
-                color: "#5B21B6",
-                "& .MuiChip-deleteIcon": { color: "#7C3AED", fontSize: 14 },
-              }}
-            />
-          ))}
-        </Box>
-      );
-    }}
-    sx={{
-      borderRadius: 1.5,
-      "& .MuiOutlinedInput-notchedOutline": { borderColor: "#ddd" },
-      "& .MuiSelect-select": { minHeight: "36px !important" },
-    }}
-    MenuProps={{ PaperProps: { sx: { maxHeight: 220 } } }}
-  >
-    {users.map((user) => (
-      <MenuItem key={user.id} value={user.name} sx={{ py: 0.5 }}>
-        <Checkbox
-          checked={attendees.includes(user.name)}
-          size="small"
-          sx={{ p: 0.5, color: "#6366F1", "&.Mui-checked": { color: "#6366F1" } }}
-        />
-        <ListItemText
-          primary={user.name}
-          slotProps={{ primary: { style: { fontSize: 13 } } }}
-        />
-      </MenuItem>
-    ))}
-  </Select> */}
           <Select
             fullWidth
             size="small"
@@ -414,27 +368,16 @@ export default function MeetingForm({
             }}
             MenuProps={{ PaperProps: { sx: { maxHeight: 220 } } }}
           >
-            {users.map(
-              (
-                user, // ✅ users from API
-              ) => (
-                <MenuItem key={user.id} value={user.name} sx={{ py: 0.5 }}>
-                  <Checkbox
-                    checked={attendees.includes(user.name)}
-                    size="small"
-                    sx={{
-                      p: 0.5,
-                      color: "#6366F1",
-                      "&.Mui-checked": { color: "#6366F1" },
-                    }}
-                  />
-                  <ListItemText
-                    primary={user.name}
-                    slotProps={{ primary: { style: { fontSize: 13 } } }}
-                  />
-                </MenuItem>
-              ),
-            )}
+
+{attendeeOptions.map((name) => (
+  <MenuItem key={name} value={name}>
+    <Checkbox
+      checked={attendees.includes(name)}
+      size="small"
+    />
+    <ListItemText primary={name} />
+  </MenuItem>
+))}
           </Select>
         </Box>
 
@@ -504,7 +447,6 @@ export default function MeetingForm({
             Note <span style={{ color: "red" }}>*</span>
           </Typography>
 
-          {/* Rich Text Editor */}
           <Box
             sx={{
               border: "1px solid #ddd",

@@ -16,24 +16,22 @@ import {
 import { Visibility, VisibilityOff } from "@mui/icons-material";
 import NextLink from "next/link";
 import { useRouter } from "next/navigation";
-import { useAppDispatch } from '@/store/hooks';
 import { setCredentials } from '@/store/slices/authSlice';
+import { useSelector } from "react-redux";
+import { useAppDispatch, useAppSelector } from "@/store/hooks"; // Modified to match your hook structural configuration
+import { loginUser } from "@/store/slices/authSlice";
 
 export default function LoginPage() {
   const router    = useRouter();
   const dispatch  = useAppDispatch();
+  const { loading, error } = useAppSelector((state) => state.auth);
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  
+  const [localError, setLocalError] = useState("");
   const [success, setSuccess] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    localStorage.removeItem("token");
-    // Remove Secure flag for localhost HTTP compatibility
-    document.cookie = "token=; path=/; max-age=0; SameSite=Strict";
-  }, []);
+ 
 
   const validate = () => {
     if (!email) return "Email is required.";
@@ -46,71 +44,46 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
+    setLocalError("");
     setSuccess("");
-    setLoading(true);
+  
 
     const validationError = validate();
     if (validationError) {
-      setError(validationError);
-      setLoading(false);
+      setLocalError(validationError);
       return;
     }
+const resultAction = await dispatch(loginUser({ email, password }));
 
-    try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/auth/login/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await res.json();
+if (loginUser.fulfilled.match(resultAction)) {
+  const data = resultAction.payload;
+  console.log("LOGIN RESPONSE:", data);
 
-      if (!res.ok) {
-        setError(data.error || data.detail || "Invalid email or password.");
-        return;
-      }
+  localStorage.setItem("access", data.access);
+  localStorage.setItem("refresh", data.refresh);
 
-      // 1. Wipe stale local storage
-      localStorage.clear();
+  localStorage.setItem(
+    "user",
+    JSON.stringify({
+      id: data.id,
+      email: data.email,
+      first_name: data.first_name,
+      last_name: data.last_name,
+      role: data.role,
+    })
+  );
+const user = JSON.parse(localStorage.getItem("user") || "{}");
 
-      // 2. Save auth values to localStorage
-      localStorage.setItem("token",     data.token);
-      localStorage.setItem("email",     data.email);
-      localStorage.setItem("firstName", data.first_name);
-      localStorage.setItem("lastName",  data.last_name);
-      localStorage.setItem(
-        "user",
-        JSON.stringify({
-          id:         data.id,
-          email:      data.email,
-          first_name: data.first_name,
-          last_name:  data.last_name,
-        }),
-      );
+console.log(user.role);
+  document.cookie = `access=${data.access}; path=/; max-age=${
+    60 * 60 * 24
+  }; SameSite=Strict`;
 
-      // 3. Write token to cookie for Next.js middleware
-      // Note: Remove "Secure" if running on localhost HTTP
-      document.cookie = `token=${data.token}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Strict`;
-
-      // 4. Hydrate Redux store directly — no duplicate API call
-      dispatch(setCredentials({
-        token:      data.token,
-        email:      data.email,
-        first_name: data.first_name,
-        last_name:  data.last_name,
-      }));
-
-      setSuccess("Login successful! Redirecting...");
-      setTimeout(() => router.push("/dashboard"), 1000);
-    } catch (err) {
-      console.error("Login error:", err);
-      setError("Cannot connect to the server. Is Django running?");
-    } finally {
-      setLoading(false);
-    }
+  setSuccess("Login successful! Redirecting...");
+  setTimeout(() => router.push("/dashboard"), 1000);
+}
   };
-
-  const fieldSx = {
+const fieldSx = {
     "& .MuiOutlinedInput-root": {
       borderRadius: 2,
       backgroundColor: "#fff",
@@ -120,7 +93,7 @@ export default function LoginPage() {
     },
     "& input::placeholder": { color: "#b0b0b0", opacity: 1 },
   };
-
+const displayedError = localError || error;
   return (
     <Box
       sx={{

@@ -1,10 +1,10 @@
 const NEXT_PUBLIC_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
 
-const getToken = () => localStorage.getItem('token');
+const getToken = () => localStorage.getItem('access');
 
 const headers = () => ({
   'Content-Type': 'application/json',
-  Authorization: `Token ${getToken()}`,
+  Authorization: `Bearer ${getToken()}`,
 });
 
 export const getCompanies = async (params?: any) => {

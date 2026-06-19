@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useDispatch, useSelector } from "react-redux";
+import { AppDispatch, RootState } from "@/store";
 import {
   Box,
   Typography,
@@ -13,18 +15,14 @@ import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 import EditIcon from "@mui/icons-material/Edit";
 import EmailForm from "./EmailForm";
-
-interface Email {
-  id: number;
-  subject: string;
-  recipients: string;
-  cc: string;
-  bcc: string;
-  body: string;
-  created_by_name: string;
-  created_at: string;
-  expanded?: boolean;
-}
+import {
+  fetchEmails,
+  sendEmail,
+  updateEmail,
+  toggleEmailExpand,
+  setEmailExpandedTrue,
+  Email,
+} from "@/store/slices/activitySlice";
 
 interface EmailListProps {
   entity: any;
@@ -32,8 +30,10 @@ interface EmailListProps {
 }
 
 export default function EmailList({ entity, entityType }: EmailListProps) {
-  const [emails, setEmails] = useState<Email[]>([]);
-  const [loading, setLoading] = useState(true);
+  const dispatch = useDispatch<AppDispatch>();
+
+  const emails = useSelector((state: RootState) => state.activities.emails);
+  const loading = useSelector((state: RootState) => state.activities.loading);
   const [formOpen, setFormOpen] = useState(false);
 
   // ── Edit state ──────────────────────────────────────────────────────────────
@@ -43,78 +43,42 @@ export default function EmailList({ entity, entityType }: EmailListProps) {
   const [saving, setSaving] = useState(false);
 
   // ── Fetch Emails ────────────────────────────────────────────────────────────
-  const fetchEmails = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/activities/emails/?entity_type=${entityType}&entity_id=${entity.id}`,
-        { headers: { Authorization: `Token ${token}` } },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setEmails(
-          (data.results || data).map((e: Email) => ({
-            ...e,
-            expanded: false,
-          })),
-        );
-      }
-    } catch (err) {
-      console.error("Failed to fetch emails:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
-    fetchEmails();
-  }, [entity.id, entityType]);
+    dispatch(fetchEmails({ entityType, entityId: entity.id }));
+  }, [entity.id, entityType, dispatch]);
 
   // ── Toggle Expand ───────────────────────────────────────────────────────────
-  const toggleExpand = (id: number) =>
-    setEmails((prev) =>
-      prev.map((e) => (e.id === id ? { ...e, expanded: !e.expanded } : e)),
-    );
-
-  // ── Send Email ──────────────────────────────────────────────────────────────
-  const handleSend = async (data: any) => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/activities/emails/`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Token ${token}`,
-          },
-          body: JSON.stringify({
-            entity_type: entityType,
-            entity_id: entity.id,
-            recipients: data.recipients,
-            cc: data.cc,
-            bcc: data.bcc,
-            subject: data.subject,
-            body: data.body,
-          }),
-        },
-      );
-      if (res.ok) await fetchEmails();
-    } catch (err) {
-      console.error("Failed to send email:", err);
-    }
+  const handleToggleExpand = (id: number) => {
+    dispatch(toggleEmailExpand(id));
   };
 
+  // // ── Send Email ──────────────────────────────────────────────────────────────
+
+  const handleSend = async (formData: any) => {
+    const resultAction = await dispatch(
+      sendEmail({
+        entity_type: entityType,
+        entity_id: entity.id,
+        recipients: formData.recipients,
+        cc: formData.cc,
+        bcc: formData.bcc,
+        subject: formData.subject,
+        body: formData.body,
+      }),
+    );
+    if (sendEmail.fulfilled.match(resultAction)) {
+      // Refresh list after sending successfully
+      dispatch(fetchEmails({ entityType, entityId: entity.id }));
+    }
+  };
   // ── Open Edit ───────────────────────────────────────────────────────────────
   const handleEditOpen = (e: React.MouseEvent, email: Email) => {
     e.stopPropagation(); // prevent row toggle
     setEditingEmailId(email.id);
     setEditSubject(email.subject);
     setEditBody(email.body);
-    // ensure expanded so edit form is visible
-    setEmails((prev) =>
-      prev.map((em) => (em.id === email.id ? { ...em, expanded: true } : em)),
-    );
+    dispatch(setEmailExpandedTrue(email.id));
   };
 
   // ── Cancel Edit ─────────────────────────────────────────────────────────────
@@ -125,42 +89,18 @@ export default function EmailList({ entity, entityType }: EmailListProps) {
   };
 
   // ── Save Edit (PATCH subject + body) ────────────────────────────────────────
+
   const handleUpdateEmail = async (emailId: number) => {
     if (!editSubject.trim() || !editBody.trim()) return;
-    try {
-      setSaving(true);
-      const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/activities/emails/${emailId}/`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Token ${token}`,
-          },
-          body: JSON.stringify({
-            subject: editSubject,
-            body: editBody,
-          }),
-        },
-      );
-      if (res.ok) {
-        setEmails((prev) =>
-          prev.map((em) =>
-            em.id === emailId
-              ? { ...em, subject: editSubject, body: editBody }
-              : em,
-          ),
-        );
-        handleEditCancel();
-      } else {
-        const err = await res.json();
-        console.error("Failed to update email:", err);
-      }
-    } catch (err) {
-      console.error("Failed to update email:", err);
-    } finally {
-      setSaving(false);
+    setSaving(true);
+
+    const resultAction = await dispatch(
+      updateEmail({ id: emailId, subject: editSubject, body: editBody }),
+    );
+
+    setSaving(false);
+    if (updateEmail.fulfilled.match(resultAction)) {
+      handleEditCancel();
     }
   };
 
@@ -225,7 +165,7 @@ export default function EmailList({ entity, entityType }: EmailListProps) {
           >
             {/* ── Header Row ── */}
             <Box
-              onClick={() => toggleExpand(email.id)}
+              onClick={() => handleToggleExpand(email.id)}
               sx={{
                 display: "flex",
                 justifyContent: "space-between",

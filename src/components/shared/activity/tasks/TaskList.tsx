@@ -1,7 +1,8 @@
-
 "use client";
 
 import { useState, useEffect } from "react";
+import { useDispatch, useSelector } from "react-redux";
+import { AppDispatch, RootState } from "@/store";
 import {
   Box,
   Typography,
@@ -15,20 +16,13 @@ import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import CalendarTodayOutlinedIcon from "@mui/icons-material/CalendarTodayOutlined";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import TaskForm from "./TaskForm";
-
-interface Task {
-  id: number;
-  task_name: string;
-  due_date: string;
-  time: string;
-  task_type: string;
-  priority: string;
-  assigned_to_name: string;
-  note: string;
-  is_complete: boolean;
-  created_at: string;
-  expanded?: boolean;
-}
+import {
+  fetchTasks,
+  createTask,
+  toggleTaskComplete,
+  toggleTaskExpand,
+  Task,
+} from "@/store/slices/activitySlice";
 
 interface TaskListProps {
   entity: any;
@@ -36,102 +30,56 @@ interface TaskListProps {
   onTaskComplete?: () => void;
 }
 
-export default function TaskList({ entity, entityType,onTaskComplete  }: TaskListProps) {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function TaskList({
+  entity,
+  entityType,
+  onTaskComplete,
+}: TaskListProps) {
+  const dispatch = useDispatch<AppDispatch>();
+
+  const { tasks, loading } = useSelector(
+    (state: RootState) => state.activities,
+  );
+
   const [formOpen, setFormOpen] = useState(false);
 
-  const fetchTasks = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/activities/tasks/?entity_type=${entityType}&entity_id=${entity.id}`,
-        { headers: { Authorization: `Token ${token}` } }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setTasks(
-          (data.results || data).map((t: Task) => ({ ...t, expanded: false }))
-        );
-      }
-    } catch (err) {
-      console.error("Failed to fetch tasks:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    fetchTasks();
-  }, [entity.id, entityType]);
-
-  const toggleExpand = (id: number) =>
-    setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, expanded: !t.expanded } : t))
-    );
+  
+    dispatch(fetchTasks({ entityType, entityId: entity.id }));
+  }, [entity.id, entityType, dispatch]);
+  console.log("Fetching tasks for:", entityType, entity.id);
 
   const handleSave = async (data: any) => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/activities/tasks/`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Token ${token}`,
-          },
-          body: JSON.stringify({
-            entity_type: entityType,
-            entity_id: entity.id,
-            task_name: data.taskName,
-            due_date: data.dueDate,
-            time: data.time,
-            task_type: data.taskType,
-            priority: data.priority,
-            assigned_to: data.assignedTo,
-            note: data.note,
-          }),
-        }
-      );
-      if (res.ok) {
-        await fetchTasks();
-      } else {
-        const err = await res.json();
-        console.error("Task save failed:", err);
-      }
-    } catch (err) {
-      console.error("Failed to save task:", err);
+    const payload = {
+      entity_type: entityType,
+      entity_id: entity.id,
+      task_name: data.taskName,
+      due_date: data.dueDate,
+      time: data.time,
+      task_type: data.taskType,
+      priority: data.priority,
+      assigned_to: data.assignedTo,
+      note: data.note,
+    };
+
+    // Dispatch the action, then re-fetch updated data on success
+    const result = await dispatch(createTask(payload));
+    console.log("CREATE TASK RESULT:", result);
+    if (createTask.fulfilled.match(result)) {
+      dispatch(fetchTasks({ entityType, entityId: entity.id }));
     }
   };
 
   const handleToggleComplete = async (task: Task) => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/activities/tasks/${task.id}/`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Token ${token}`,
-          },
-          body: JSON.stringify({ is_complete: !task.is_complete }),
-        }
-      );
-      if (res.ok) {
-        setTasks((prev) =>
-          prev.map((t) =>
-            t.id === task.id ? { ...t, is_complete: !t.is_complete } : t
-          )
-        );
-        onTaskComplete?.();
-      }
-    } catch (err) {
-      console.error("Failed to toggle task:", err);
+    const result = await dispatch(
+      toggleTaskComplete({ id: task.id, isComplete: !task.is_complete }),
+    );
+    if (toggleTaskComplete.fulfilled.match(result)) {
+      // Re-fetch to guarantee sync with database state changes
+      dispatch(fetchTasks({ entityType, entityId: entity.id }));
+      onTaskComplete?.();
     }
   };
-
   const isOverdue = (due_date: string) => new Date(due_date) < new Date();
 
   return (
@@ -185,7 +133,7 @@ export default function TaskList({ entity, entityType,onTaskComplete  }: TaskLis
           >
             {/* Header Row */}
             <Box
-              onClick={() => toggleExpand(task.id)}
+              onClick={() => dispatch(toggleTaskExpand(task.id))}
               sx={{
                 display: "flex",
                 justifyContent: "space-between",
@@ -199,11 +147,13 @@ export default function TaskList({ entity, entityType,onTaskComplete  }: TaskLis
                 {task.expanded ? (
                   <KeyboardArrowDownIcon sx={{ fontSize: 16, color: "#555" }} />
                 ) : (
-                  <KeyboardArrowRightIcon sx={{ fontSize: 16, color: "#555" }} />
+                  <KeyboardArrowRightIcon
+                    sx={{ fontSize: 16, color: "#555" }}
+                  />
                 )}
                 <Typography sx={{ fontSize: 13 }}>
                   <span style={{ fontWeight: 600 }}>Task</span> assigned to{" "}
-                  {task.assigned_to_name}
+                  {task.assigned_to_names?.join(", ") || "Unassigned"}
                 </Typography>
               </Box>
 
@@ -253,89 +203,120 @@ export default function TaskList({ entity, entityType,onTaskComplete  }: TaskLis
                 )}
               </IconButton>
 
-              {/* Task Name with strike-through when complete */}
-              {/* <Typography
-                sx={{
-                  fontSize: 13,
-                  color: task.is_complete ? "#aaa" : "#555",
-                  textDecoration: task.is_complete ? "line-through" : "none",
-                }}
-              >
-                {task.task_name}
-              </Typography> */}
               <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-  {/* Task Name with strike-through when complete */}
-  <Typography
-    sx={{
-      fontSize: 13,
-      color: task.is_complete ? "#aaa" : "#555",
-      textDecoration: task.is_complete ? "line-through" : "none",
-    }}
-  >
-    {task.task_name}
-  </Typography>
+                {/* Task Name with strike-through when complete */}
+                <Typography
+                  sx={{
+                    fontSize: 13,
+                    color: task.is_complete ? "#aaa" : "#555",
+                    textDecoration: task.is_complete ? "line-through" : "none",
+                  }}
+                >
+                  {task.task_name}
+                </Typography>
 
-  {/* Show "Finished" label when complete */}
-  {task.is_complete && (
-    <Typography
-      sx={{
-        fontSize: 11,
-        color: "#4caf50",
-        fontWeight: 600,
-        bgcolor: "#e8f5e9",
-        px: 1,
-        py: 0.2,
-        borderRadius: 1,
-      }}
-    >
-      Finished
-    </Typography>
-  )}
-</Box>
+                {/* Show "Finished" label when complete */}
+                {task.is_complete && (
+                  <Typography
+                    sx={{
+                      fontSize: 11,
+                      color: "#4caf50",
+                      fontWeight: 600,
+                      bgcolor: "#e8f5e9",
+                      px: 1,
+                      py: 0.2,
+                      borderRadius: 1,
+                    }}
+                  >
+                    Finished
+                  </Typography>
+                )}
+              </Box>
             </Box>
 
-            {/* Expanded Details */}
             {task.expanded && (
-              <Box sx={{ borderTop: "1px solid #f0f0f0" }}>
+              <Box sx={{ borderTop: "1px solid #f0f0f0", pt: 0.5 }}>
+                {/* ── Metadata Details Box ── */}
                 <Box
                   sx={{
                     display: "flex",
-                    bgcolor: "#f9f9fb",
-                    px: 2,
-                    py: 1.5,
+                    bgcolor: "#edf2f7",
+                    mx: 2,
+                    my: 1,
+                    px: 2.5,
+                    py: 2,
+                    borderRadius: 1.5,
                     gap: 2,
                   }}
                 >
-                  <Box sx={{ flex: 1 }}>
-                    <Typography sx={{ fontSize: 11, color: "#aaa", mb: 0.3 }}>
+                  {/* Due Date & Time */}
+                  <Box sx={{ flex: 1.5 }}>
+                    <Typography
+                      sx={{
+                        fontSize: 11,
+                        color: "#64748b",
+                        fontWeight: 500,
+                        mb: 0.8,
+                      }}
+                    >
                       Due Date & Time
                     </Typography>
-                    <Typography sx={{ fontSize: 13, fontWeight: 500 }}>
-                      {task.due_date} {task.time}
+                    <Typography
+                      sx={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}
+                    >
+                      {task.due_date} {task.time ? `at ${task.time}` : ""}
                     </Typography>
                   </Box>
+
+                  {/* Priority */}
                   <Box sx={{ flex: 1 }}>
-                    <Typography sx={{ fontSize: 11, color: "#aaa", mb: 0.3 }}>
+                    <Typography
+                      sx={{
+                        fontSize: 11,
+                        color: "#64748b",
+                        fontWeight: 500,
+                        mb: 0.8,
+                      }}
+                    >
                       Priority
                     </Typography>
-                    <Typography sx={{ fontSize: 13, fontWeight: 500 }}>
-                      {task.priority}
+                    <Typography
+                      sx={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}
+                    >
+                      {task.priority || "None"}
                     </Typography>
                   </Box>
+
+                  {/* Type */}
                   <Box sx={{ flex: 1 }}>
-                    <Typography sx={{ fontSize: 11, color: "#aaa", mb: 0.3 }}>
+                    <Typography
+                      sx={{
+                        fontSize: 11,
+                        color: "#64748b",
+                        fontWeight: 500,
+                        mb: 0.8,
+                      }}
+                    >
                       Type
                     </Typography>
-                    <Typography sx={{ fontSize: 13, fontWeight: 500 }}>
-                      {task.task_type}
+                    <Typography
+                      sx={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}
+                    >
+                      {task.task_type || "To-Do"}
                     </Typography>
                   </Box>
                 </Box>
 
+                {/* ── Description Note Section ── */}
                 {task.note && (
-                  <Box sx={{ px: 2, py: 1.5 }}>
+                  <Box sx={{ px: 2, pt: 1, pb: 2 }}>
                     <Typography
-                      sx={{ fontSize: 13, color: "#555", lineHeight: 1.6 }}
+                      sx={{
+                        fontSize: 13,
+                        color: "#475569", // Subdued slate text for easy reading
+                        lineHeight: 1.6,
+                        fontWeight: 400,
+                      }}
                     >
                       {task.note}
                     </Typography>

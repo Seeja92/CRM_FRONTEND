@@ -15,11 +15,11 @@ export default function LeadDetailPage() {
   useEffect(() => {
     const fetchLead = async () => {
       try {
-        const token = localStorage.getItem("token");
+        const token = localStorage.getItem("access");
         console.log("Token:", token);
         const res = await fetch(
           `${process.env.NEXT_PUBLIC_API_BASE_URL}/leads/${leadId}/`,
-          { headers: { Authorization: `Token ${token}` } },
+          { headers: { Authorization: `Bearer ${token}` } },
         );
         console.log(
           "Fetching:",
@@ -41,6 +41,7 @@ export default function LeadDetailPage() {
             status: data.status,
             createdDate: data.created_date,
             contactOwner: data.contact_owner,
+            city:data.city,
           });
         } else {
           const err = await res.json();

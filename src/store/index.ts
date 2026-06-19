@@ -6,6 +6,8 @@ import companiesReducer     from './slices/companiesSlice';
 import ticketsReducer       from './slices/ticketsSlice';
 import dashboardReducer     from './slices/dashboardSlice';
 import notificationsReducer from './slices/notificationsSlice';
+import usersReducer from "./slices/usersSlice";
+import activityReducer from './slices/activitySlice';
 
 export const store = configureStore({
   reducer: {
@@ -16,6 +18,8 @@ export const store = configureStore({
     tickets:       ticketsReducer,
     dashboard:     dashboardReducer,
     notifications: notificationsReducer,
+    users: usersReducer,
+    activities: activityReducer,
   },
 });
 

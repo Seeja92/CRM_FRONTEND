@@ -84,7 +84,7 @@ export default function ActivityPanel({
         />
       )}
       {activeTab === 5 && (
-        <MeetingList entity={entity} entityType={entityType} />
+        <MeetingList entity={entity} entityType={entityType} lead={entity}/>
       )}
     </Box>
   );

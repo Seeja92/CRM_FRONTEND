@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useDispatch, useSelector } from "react-redux";
 import {
   Box,
   Typography,
@@ -17,21 +18,15 @@ import {
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import KeyboardArrowRightIcon from "@mui/icons-material/KeyboardArrowRight";
 import EditIcon from "@mui/icons-material/Edit";
+import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import CallForm from "./CallForm";
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-interface Call {
-  id: number;
-  connected: string;
-  call_outcome: string;
-  duration: string;
-  date: string;
-  time: string;
-  note: string;
-  created_by_name: string;
-  created_at: string;
-  expanded?: boolean;
-}
+import {
+  fetchCalls,
+  createCall,
+  updateCall,
+  toggleCallExpand,
+  Call,
+} from "../../../../store/slices/activitySlice";
 
 interface CallListProps {
   entity: any;
@@ -61,10 +56,12 @@ const durationOptions = [
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function CallList({ entity, entityType }: CallListProps) {
+  const dispatch = useDispatch<any>();
+
+  const { calls, loading } = useSelector((state: any) => state.activities);
   const activeCallSidRef = useRef("");
   const [activeCallSid, setActiveCallSid] = useState("");
-  const [calls, setCalls] = useState<Call[]>([]);
-  const [loading, setLoading] = useState(true);
+ 
   const [callingOpen, setCallingOpen] = useState(false);
 
   // ── Edit state ──────────────────────────────────────────────────────────────
@@ -74,38 +71,20 @@ export default function CallList({ entity, entityType }: CallListProps) {
   const [saving, setSaving] = useState(false);
 
   // Add state
+  const [isCallActive, setIsCallActive] = useState(false);
   const [logCallOpen, setLogCallOpen] = useState(false);
 
   // ── Fetch Calls ─────────────────────────────────────────────────────────────
-  const fetchCalls = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/activities/calls/?entity_type=${entityType}&entity_id=${entity.id}`,
-        { headers: { Authorization: `Token ${token}` } },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setCalls(
-          (data.results || data).map((c: Call) => ({ ...c, expanded: false })),
-        );
-      }
-    } catch (err) {
-      console.error("Failed to fetch calls:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
-    fetchCalls();
-  }, [entity.id, entityType]);
+    dispatch(fetchCalls({ entityType, entityId: entity.id }));
+  }, [entity.id, entityType, dispatch]);
 
   // ── Toggle Expand ───────────────────────────────────────────────────────────
-  const toggleExpand = (id: number) =>
-    setCalls((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, expanded: !c.expanded } : c)),
-    );
+ 
+  const toggleExpand = (id: number) => {
+    dispatch(toggleCallExpand(id));
+  };
 
   // ── Open Edit Mode ──────────────────────────────────────────────────────────
   const handleEditOpen = (e: React.MouseEvent, call: Call) => {
@@ -123,42 +102,20 @@ export default function CallList({ entity, entityType }: CallListProps) {
   };
 
   // ── Save Edit (PATCH duration + outcome) ────────────────────────────────────
+ 
   const handleUpdateCall = async (callId: number) => {
-    try {
-      setSaving(true);
-      const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/activities/calls/${callId}/`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Token ${token}`,
-          },
-          body: JSON.stringify({
-            duration: editDuration,
-            call_outcome: editOutcome, // ── matches backend field name
-          }),
+    setSaving(true);
+    await dispatch(
+      updateCall({
+        id: callId,
+        payload: {
+          duration: editDuration,
+          call_outcome: editOutcome,
         },
-      );
-      if (res.ok) {
-        setCalls((prev) =>
-          prev.map((c) =>
-            c.id === callId
-              ? { ...c, duration: editDuration, call_outcome: editOutcome }
-              : c,
-          ),
-        );
-        handleEditCancel();
-      } else {
-        const err = await res.json();
-        console.error("Failed to update call:", err);
-      }
-    } catch (err) {
-      console.error("Failed to update call:", err);
-    } finally {
-      setSaving(false);
-    }
+      }),
+    );
+    setSaving(false);
+    handleEditCancel();
   };
 
   // ── Format Date ─────────────────────────────────────────────────────────────
@@ -213,7 +170,7 @@ export default function CallList({ entity, entityType }: CallListProps) {
           No calls logged yet.
         </Typography>
       ) : (
-        calls.map((call) => (
+        calls.map((call: Call) => (
           <Box
             key={call.id}
             sx={{
@@ -276,202 +233,148 @@ export default function CallList({ entity, entityType }: CallListProps) {
 
             {/* ── Expanded View ── */}
             {call.expanded && (
-              <Box sx={{ borderTop: "1px solid #f5f5f5" }}>
-                {/* ── Edit Mode ── */}
-                {editingCallId === call.id ? (
-                  <Box sx={{ px: 2, py: 2 }}>
+              <Box
+                sx={{
+                  borderTop: "1px solid #f0f0f0",
+                  px: 3,
+                  pb: 2.5,
+                  pt: 1.5,
+                  bgcolor: "#fff",
+                }}
+              >
+                {/* Description / Note Text */}
+                <Typography
+                  sx={{
+                    fontSize: 13,
+                    color: "#4a5568",
+                    lineHeight: 1.6,
+                    mb: 2,
+                  }}
+                >
+                  {call.note ||
+                    "Brought Jane through our latest product line. He's interested and is going to get back to me."}
+                </Typography>
+
+                {/* Form Selection Fields Row */}
+                <Box
+                  sx={{
+                    display: "flex",
+                    gap: 2,
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  {/* Outcome Select Field */}
+                  <Box sx={{ flex: 1, minWidth: 200, maxWidth: 300 }}>
                     <Typography
                       sx={{
-                        fontSize: 13,
-                        fontWeight: 600,
-                        mb: 1.5,
-                        color: "#1a1a2e",
+                        fontSize: 12,
+                        color: "#4a5568",
+                        fontWeight: 500,
+                        mb: 0.5,
                       }}
                     >
-                      Edit Call Details
+                      Outcome <span style={{ color: "#e53e3e" }}>*</span>
                     </Typography>
-                    <Box
-                      sx={{ display: "flex", gap: 2, mb: 2, flexWrap: "wrap" }}
+                    <Select
+                      fullWidth
+                      size="small"
+                      value={editOutcome}
+                      onChange={(e) => setEditOutcome(e.target.value)}
+                      displayEmpty
+                      IconComponent={KeyboardArrowDownIcon}
+                      renderValue={(val) => (
+                        <Typography
+                          sx={{
+                            fontSize: 13,
+                            color: val ? "#2d3748" : "#a0aec0",
+                          }}
+                        >
+                          {val || "Choose"}
+                        </Typography>
+                      )}
+                      sx={{
+                        borderRadius: 1.5,
+                        bgcolor: "#fff",
+                        "& .MuiOutlinedInput-notchedOutline": {
+                          borderColor: "#cbd5e0",
+                        },
+                        "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+                          borderColor: "#6c63ff",
+                        },
+                      }}
                     >
-                      {/* Duration */}
-                      <Box sx={{ flex: 1, minWidth: 140 }}>
-                        <Typography
-                          sx={{
-                            fontSize: 12,
-                            color: "#555",
-                            mb: 0.5,
-                            fontWeight: 500,
-                          }}
-                        >
-                          Duration
-                        </Typography>
-                        <Select
-                          fullWidth
-                          size="small"
-                          value={editDuration}
-                          onChange={(e) => setEditDuration(e.target.value)}
-                          displayEmpty
-                          IconComponent={KeyboardArrowDownIcon}
-                          renderValue={(val) => (
-                            <Typography
-                              sx={{
-                                fontSize: 13,
-                                color: val ? "#333" : "#aaa",
-                              }}
-                            >
-                              {val || "Select duration"}
-                            </Typography>
-                          )}
-                          sx={{
-                            borderRadius: 1.5,
-                            "& .MuiOutlinedInput-notchedOutline": {
-                              borderColor: "#ddd",
-                            },
-                          }}
-                        >
-                          {durationOptions.map((opt) => (
-                            <MenuItem
-                              key={opt}
-                              value={opt}
-                              sx={{ fontSize: 13 }}
-                            >
-                              {opt}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </Box>
-
-                      {/* Outcome */}
-                      <Box sx={{ flex: 1, minWidth: 160 }}>
-                        <Typography
-                          sx={{
-                            fontSize: 12,
-                            color: "#555",
-                            mb: 0.5,
-                            fontWeight: 500,
-                          }}
-                        >
-                          Outcome
-                        </Typography>
-                        <Select
-                          fullWidth
-                          size="small"
-                          value={editOutcome}
-                          onChange={(e) => setEditOutcome(e.target.value)}
-                          displayEmpty
-                          IconComponent={KeyboardArrowDownIcon}
-                          renderValue={(val) => (
-                            <Typography
-                              sx={{
-                                fontSize: 13,
-                                color: val ? "#333" : "#aaa",
-                              }}
-                            >
-                              {val || "Select outcome"}
-                            </Typography>
-                          )}
-                          sx={{
-                            borderRadius: 1.5,
-                            "& .MuiOutlinedInput-notchedOutline": {
-                              borderColor: "#ddd",
-                            },
-                          }}
-                        >
-                          {outcomeOptions.map((opt) => (
-                            <MenuItem
-                              key={opt}
-                              value={opt}
-                              sx={{ fontSize: 13 }}
-                            >
-                              {opt}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </Box>
-                    </Box>
-
-                    {/* Save / Cancel */}
-                    <Box sx={{ display: "flex", gap: 1 }}>
-                      <Button
-                        size="small"
-                        variant="contained"
-                        disabled={saving}
-                        onClick={() => handleUpdateCall(call.id)}
-                        sx={{
-                          bgcolor: "#6c63ff",
-                          textTransform: "none",
-                          borderRadius: 1.5,
-                          fontWeight: 600,
-                          "&:hover": { bgcolor: "#5a52d5" },
-                        }}
-                      >
-                        {saving ? "Saving..." : "Save"}
-                      </Button>
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={handleEditCancel}
-                        sx={{
-                          textTransform: "none",
-                          borderRadius: 1.5,
-                          borderColor: "#ddd",
-                          color: "#555",
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    </Box>
+                      {outcomeOptions.map((opt) => (
+                        <MenuItem key={opt} value={opt} sx={{ fontSize: 13 }}>
+                          {opt}
+                        </MenuItem>
+                      ))}
+                    </Select>
                   </Box>
-                ) : (
-                  // ── Normal Expanded View ──
-                  <Box sx={{ px: 2, pb: 2, pt: 1.5 }}>
-                    <Typography sx={{ fontSize: 13, color: "#555", mb: 1.5 }}>
-                      {call.note}
+
+                  {/* Duration Select Field */}
+                  <Box sx={{ flex: 1, minWidth: 160, maxWidth: 220 }}>
+                    <Typography
+                      sx={{
+                        fontSize: 12,
+                        color: "#4a5568",
+                        fontWeight: 500,
+                        mb: 0.5,
+                      }}
+                    >
+                      Duration <span style={{ color: "#e53e3e" }}>*</span>
                     </Typography>
-                    <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
-                      <Box sx={{ flex: 1 }}>
+                    <Select
+                      fullWidth
+                      size="small"
+                      value={editDuration}
+                      onChange={(e) => setEditDuration(e.target.value)}
+                      displayEmpty
+                      // Replacing default arrow with a clock icon to match your design image
+                      IconComponent={AccessTimeIcon}
+                      renderValue={(val) => (
                         <Typography
-                          sx={{ fontSize: 11, color: "#aaa", mb: 0.3 }}
+                          sx={{
+                            fontSize: 13,
+                            color: val ? "#2d3748" : "#a0aec0",
+                          }}
                         >
-                          Outcome
+                          {val || "Choose"}
                         </Typography>
-                        <Typography sx={{ fontSize: 13, fontWeight: 500 }}>
-                          {call.call_outcome || "—"}
-                        </Typography>
-                      </Box>
-                      <Box sx={{ flex: 1 }}>
-                        <Typography
-                          sx={{ fontSize: 11, color: "#aaa", mb: 0.3 }}
-                        >
-                          Duration
-                        </Typography>
-                        <Typography sx={{ fontSize: 13, fontWeight: 500 }}>
-                          {call.duration || "—"}
-                        </Typography>
-                      </Box>
-                      <Box sx={{ flex: 1 }}>
-                        <Typography
-                          sx={{ fontSize: 11, color: "#aaa", mb: 0.3 }}
-                        >
-                          Date & Time
-                        </Typography>
-                        <Typography sx={{ fontSize: 13, fontWeight: 500 }}>
-                          {call.date} {call.time}
-                        </Typography>
-                      </Box>
-                    </Box>
+                      )}
+                      sx={{
+                        borderRadius: 1.5,
+                        bgcolor: "#fff",
+                        // Pushes the clock icon slightly left to match normal styling if needed
+                        "& .MuiSelect-icon": { right: 12, color: "#718096" },
+                        "& .MuiOutlinedInput-notchedOutline": {
+                          borderColor: "#cbd5e0",
+                        },
+                        "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
+                          borderColor: "#6c63ff",
+                        },
+                      }}
+                    >
+                      {durationOptions.map((opt) => (
+                        <MenuItem key={opt} value={opt} sx={{ fontSize: 13 }}>
+                          {opt}
+                        </MenuItem>
+                      ))}
+                    </Select>
                   </Box>
-                )}
+                </Box>
               </Box>
             )}
           </Box>
         ))
       )}
 
-      {/* ── Calling Dialog ── */}
       <Dialog
         open={callingOpen}
-        onClose={() => setCallingOpen(false)}
+        onClose={() => {
+          // Only allow closing if there isn't an active call running
+          if (!isCallActive) setCallingOpen(false);
+        }}
         maxWidth="xs"
         fullWidth
       >
@@ -499,32 +402,39 @@ export default function CallList({ entity, entityType }: CallListProps) {
               entity?.deal_name
             )?.charAt(0)}
           </Avatar>
-          <Typography sx={{ fontSize: 14, color: "#888", mb: 1 }}>
-            Calling...
-          </Typography>
+
+          {/* ── Dynamically show status only when call is active ── */}
+          {isCallActive && (
+            <Typography
+              sx={{ fontSize: 14, color: "#4caf50", fontWeight: 600, mb: 1 }}
+            >
+              Dialing...
+            </Typography>
+          )}
+
           <Typography
             sx={{ fontSize: 22, fontWeight: 700, color: "#1a1a2e", mb: 0.5 }}
           >
             {entity?.name}
           </Typography>
-
           <Typography sx={{ fontSize: 14, color: "#666", mb: 4 }}>
             {entity?.phone || entity?.phone_number || "No phone number"}
           </Typography>
 
+          {/* Start Call Button */}
           <Button
             variant="contained"
+            disabled={isCallActive} // Disable if already calling
             onClick={async () => {
               try {
-                const token = localStorage.getItem("token");
-
+                const token = localStorage.getItem("access");
                 const res = await fetch(
                   `${process.env.NEXT_PUBLIC_API_BASE_URL}/activities/make-call/`,
                   {
                     method: "POST",
                     headers: {
                       "Content-Type": "application/json",
-                      Authorization: `Token ${token}`,
+                      Authorization: `Bearer ${token}`,
                     },
                     body: JSON.stringify({
                       to_phone: entity?.phone || entity?.phone_number,
@@ -538,13 +448,11 @@ export default function CallList({ entity, entityType }: CallListProps) {
                     }),
                   },
                 );
-
                 const data = await res.json();
-
                 if (res.ok) {
                   setActiveCallSid(data.sid);
                   activeCallSidRef.current = data.sid;
-                } else {
+                  setIsCallActive(true); // ──> Set text to appear
                 }
               } catch (err) {
                 console.error(err);
@@ -554,39 +462,41 @@ export default function CallList({ entity, entityType }: CallListProps) {
               mb: 1,
               bgcolor: "#4caf50",
               "&:hover": { bgcolor: "#43a047" },
+              width: "100%",
+              maxWidth: "200px",
             }}
           >
             Start Call
           </Button>
 
+          {/* End Call Button */}
           <Button
             variant="contained"
+            disabled={!isCallActive} // Disable if no call is running
             onClick={async () => {
               try {
                 const sid = activeCallSidRef.current || activeCallSid;
-               
-                if (!sid) {
-                  return;
-                }
+                if (!sid) return;
 
-                const token = localStorage.getItem("token");
-                const res = await fetch(
+                const token = localStorage.getItem("access");
+                await fetch(
                   `${process.env.NEXT_PUBLIC_API_BASE_URL}/activities/end-call/`,
                   {
                     method: "POST",
                     headers: {
                       "Content-Type": "application/json",
-                      Authorization: `Token ${token}`,
+                      Authorization: `Bearer ${token}`,
                     },
                     body: JSON.stringify({ sid }),
                   },
                 );
 
-                // close regardless of response
+                // Clean up all local states on end
+                setIsCallActive(false); // ──> Set text to disappear
                 setCallingOpen(false);
                 setActiveCallSid("");
                 activeCallSidRef.current = "";
-                await fetchCalls();
+                dispatch(fetchCalls({ entityType, entityId: entity.id }));
               } catch (err) {
                 console.error(err);
               }
@@ -594,6 +504,8 @@ export default function CallList({ entity, entityType }: CallListProps) {
             sx={{
               bgcolor: "#e53935",
               "&:hover": { bgcolor: "#d32f2f" },
+              width: "100%",
+              maxWidth: "200px",
             }}
           >
             End Call
@@ -605,36 +517,18 @@ export default function CallList({ entity, entityType }: CallListProps) {
         open={logCallOpen}
         onClose={() => setLogCallOpen(false)}
         onSave={async (data) => {
-          try {
-            const token = localStorage.getItem("token");
-            const res = await fetch(
-              `${process.env.NEXT_PUBLIC_API_BASE_URL}/activities/calls/`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Token ${token}`,
-                },
-                body: JSON.stringify({
-                  entity_type: entityType,
-                  entity_id: entity.id,
-                  connected: data.connected,
-                  call_outcome: data.callOutcome,
-                  date: data.date,
-                  time: data.time,
-                  note: data.note,
-                }),
-              },
-            );
-            if (res.ok) {
-              await fetchCalls();
-            } else {
-              const err = await res.json();
-              console.error("Failed to save call:", err);
-            }
-          } catch (err) {
-            console.error("Failed to save call:", err);
-          }
+          await dispatch(
+            createCall({
+              entity_type: entityType,
+              entity_id: entity.id,
+              connected: data.connected,
+              call_outcome: data.callOutcome,
+              date: data.date,
+              time: data.time,
+              note: data.note,
+            }),
+          );
+          dispatch(fetchCalls({ entityType, entityId: entity.id }));
           setLogCallOpen(false);
         }}
         defaultContact={

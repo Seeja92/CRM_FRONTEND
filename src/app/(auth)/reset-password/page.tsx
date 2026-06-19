@@ -11,71 +11,42 @@ import {
   Alert,
 } from "@mui/material";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { confirmPasswordReset } from "@/store/slices/authSlice";
 
 function ResetPasswordForm() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const token = searchParams.get("token") || "";
-
+  const dispatch = useAppDispatch();
+  const token = searchParams.get("access") || "";
+const { loading, error } = useAppSelector((state) => state.auth);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState("");
+  const [localError, setlocalError] = useState("");
   const [success, setSuccess] = useState("");
-  const [loading, setLoading] = useState(false);
+  // const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
+    setlocalError("");
 
     if (!password) {
-      setError("Password is required.");
+      setlocalError("Password is required.");
       return;
     }
     if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
+      setlocalError("Password must be at least 8 characters.");
       return;
     }
     if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+      setlocalError("Passwords do not match.");
       return;
     }
-
-    setLoading(true);
-    try {
-      console.log("TOKEN:", token);
-      console.log("PASSWORD:", password);
-      const res = await fetch(
-         `${process.env.NEXT_PUBLIC_API_BASE_URL}/auth/password-reset/confirm/`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token, password }),
-        },
-      );
-
-      const data = await res.json();
-
-      console.log("RESET RESPONSE:", data);
-
-      if (!res.ok) {
-        const errorMessage =
-          data.password?.[0] ||
-          data.token?.[0] ||
-          data.detail ||
-          "Reset failed.";
-
-        setError(errorMessage);
-
-        return;
-      }
-
+const resultAction = await dispatch(confirmPasswordReset({ token, password }));
+  if (confirmPasswordReset.fulfilled.match(resultAction)) {
       setSuccess("Password reset successful! Redirecting to login...");
       localStorage.clear();
       setTimeout(() => router.push("/login"), 1500);
-    } catch (err: any) {
-      setError("Something went wrong. Please try again.");
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -88,6 +59,7 @@ function ResetPasswordForm() {
       "&.Mui-focused fieldset": { borderColor: "#6c63ff" },
     },
   };
+  const displayedError = localError || error;
 
   return (
     <Box

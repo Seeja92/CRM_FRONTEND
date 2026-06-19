@@ -16,7 +16,12 @@ import {
   Divider,
   ToggleButton,
   ToggleButtonGroup,
+  Checkbox,
+  ListItemText,
 } from "@mui/material";
+import { useDispatch, useSelector } from "react-redux";
+import { AppDispatch, RootState } from "@/store";
+import { fetchUsers } from "@/store/slices/usersSlice";
 import CloseIcon from "@mui/icons-material/Close";
 import CalendarTodayOutlinedIcon from "@mui/icons-material/CalendarTodayOutlined";
 import AccessTimeOutlinedIcon from "@mui/icons-material/AccessTimeOutlined";
@@ -40,7 +45,7 @@ interface TaskData {
   time: string;
   taskType: string;
   priority: string;
-  assignedTo: number | ""; // ── ID now, not name
+  assignedTo: number[];
   note: string;
 }
 
@@ -48,17 +53,24 @@ const taskTypeOptions = ["To-Do", "Call", "Email", "Meeting", "Follow Up"];
 const priorityOptions = ["Low", "Medium", "High", "Urgent"];
 
 export default function TaskForm({ open, onClose, onSave }: TaskFormProps) {
+  const dispatch = useDispatch<AppDispatch>();
   const dueDateRef = useRef<HTMLInputElement>(null);
   const timeRef = useRef<HTMLInputElement>(null);
-  const [users, setUsers] = useState<{ id: number; name: string }[]>([]);
+  const { users } = useSelector((state: RootState) => state.users);
   const [taskName, setTaskName] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [time, setTime] = useState("");
   const [taskType, setTaskType] = useState("");
   const [priority, setPriority] = useState("");
-  const [assignedTo, setAssignedTo] = useState<number | "">(""); // ── store ID
+  const [assignedTo, setAssignedTo] = useState<number[]>([]);
   const [note, setNote] = useState("");
   const [formats, setFormats] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (open) {
+      dispatch(fetchUsers());
+    }
+  }, [open, dispatch]);
 
   const handleSave = () => {
     if (!taskName.trim()) return;
@@ -72,34 +84,11 @@ export default function TaskForm({ open, onClose, onSave }: TaskFormProps) {
     setTime("");
     setTaskType("");
     setPriority("");
-    setAssignedTo("");
+    setAssignedTo([]);
     setNote("");
     setFormats([]);
     onClose();
   };
-
-  useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        const token = localStorage.getItem("token");
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_BASE_URL}/auth/users/`,
-          {
-            headers: { Authorization: `Token ${token}` },
-          },
-        );
-        if (res.ok) {
-          const data = await res.json();
-          setUsers(
-            (data.results || data).filter((u: any) => u.name.trim() !== ""),
-          );
-        }
-      } catch (err) {
-        console.error("Failed to fetch users:", err);
-      }
-    };
-    fetchUsers();
-  }, []);
 
   return (
     <Dialog
@@ -293,19 +282,39 @@ export default function TaskForm({ open, onClose, onSave }: TaskFormProps) {
           <Select
             fullWidth
             size="small"
+            multiple
             value={assignedTo}
-            onChange={(e) => setAssignedTo(e.target.value as number)} // ── store user ID
+            
+            onChange={(e) => {
+              const value = e.target.value;
+              // Material-UI handles value assignment array changes automatically
+              setAssignedTo(Array.isArray(value) ? value : []);
+            }}
             displayEmpty
             IconComponent={KeyboardArrowDownIcon}
-            renderValue={(val) => {
-              const user = users.find((u) => u.id === val);
+            renderValue={(selectedIds) => {
+              if (!Array.isArray(selectedIds) || selectedIds.length === 0) {
+                return (
+                  <Typography sx={{ fontSize: 13, color: "#aaa" }}>
+                    Choose
+                  </Typography>
+                );
+              }
+              const selectedNames = selectedIds
+                .map((id) => users.find((u) => u.id === id)?.name)
+                .filter(Boolean);
               return (
-                <Typography
-                  sx={{ fontSize: 13, color: user ? "#333" : "#aaa" }}
-                >
-                  {user ? user.name : "Choose"}
+                <Typography sx={{ fontSize: 13, color: "#333" }}>
+                  {selectedNames.join(", ")}
                 </Typography>
               );
+            }}
+            MenuProps={{
+              PaperProps: {
+                style: {
+                  maxHeight: 250, // Limits container height so it scrolls cleanly
+                },
+              },
             }}
             sx={{
               borderRadius: 1.5,
@@ -315,9 +324,26 @@ export default function TaskForm({ open, onClose, onSave }: TaskFormProps) {
           >
             {users.map((u) => (
               <MenuItem key={u.id} value={u.id} sx={{ fontSize: 13 }}>
-                {" "}
+                {/* {" "} */}
                 {/* ── value is ID */}
-                {u.name}
+                {/* {u.name} */}
+                <Checkbox
+                  size="small"
+                  checked={
+                    Array.isArray(assignedTo)
+                      ? assignedTo.includes(u.id)
+                      : assignedTo === u.id
+                  }
+                  sx={{
+                    color: "#6c63ff",
+                    "&.Mui-checked": { color: "#6c63ff" },
+                  }}
+                />
+
+                <ListItemText
+                  primary={u.name}
+                  primaryTypographyProps={{ fontSize: 13 }}
+                />
               </MenuItem>
             ))}
           </Select>

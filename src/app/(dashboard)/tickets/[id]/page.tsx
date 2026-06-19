@@ -17,8 +17,12 @@ import {
   CircularProgress,
   Drawer,
   FormHelperText,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from "@mui/material";
 import Grid from "@mui/material/Grid2";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import Attachments from "@/components/shared/Attachments";
 import {
   ArrowBack,
@@ -32,14 +36,19 @@ import {
 } from "@mui/icons-material";
 import Close from "@mui/icons-material/Close";
 import { useRouter, useParams } from "next/navigation";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import {
+  fetchTicketById,
+  updateTicket,
+  clearSelectedTicket,
+} from "@/store/slices/ticketsSlice";
 import ActivityPanel from "@/components/shared/activity/ActivityPanel";
 import CallForm from "@/components/shared/activity/calls/CallForm";
-import CallList from "@/components/shared/activity/calls/CallList";
 import ToastNotification from "@/components/shared/ToastNotification";
-// import { useMemo } from "react";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import CalendarTodayOutlined from "@mui/icons-material/CalendarTodayOutlined";
+import EmailForm from "@/components/shared/activity/emails/EmailForm";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const statusOptions = [
@@ -71,7 +80,6 @@ const fieldSx = {
     "&.Mui-focused fieldset": { borderColor: "#6c63ff" },
   },
 };
-
 const labelSx = { fontSize: 13, fontWeight: 500, color: "#1a1a2e", mb: 0.5 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -79,9 +87,12 @@ const TicketViewPage = () => {
   const router = useRouter();
   const params = useParams();
   const ticketId = params?.id as string;
+
+  const dispatch = useAppDispatch();
+  // ✅ ticketData from Redux only — no useState duplicate
+  const ticketData = useAppSelector((state) => state.tickets.selectedTicket);
+  const loading = useAppSelector((state) => state.tickets.loading);
   const [activityLoading, setActivityLoading] = useState(false);
-  const [ticketData, setTicketData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("");
   const [owners, setOwners] = useState<any[]>([]);
   const [companies, setCompanies] = useState<any[]>([]);
@@ -97,7 +108,6 @@ const TicketViewPage = () => {
     source: "",
     priority: "",
     ownerId: "",
-    companyId: "",
     dealId: "",
   });
   const [editErrors, setEditErrors] = useState<any>({});
@@ -107,27 +117,45 @@ const TicketViewPage = () => {
     severity: "success" as "success" | "error",
   });
 
+  const [openEmailForm, setOpenEmailForm] = useState(false);
+  const [emailForm, setEmailForm] = useState({
+    to: "",
+    subject: "",
+    message: "",
+  });
+
   const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
   const getToken = () => localStorage.getItem("token");
 
-  // ── Fetch Ticket ──────────────────────────────────────────────────────────
-  const fetchTicket = async () => {
-    try {
-      setLoading(true);
-      const res = await fetch(`${BASE_URL}/tickets/${ticketId}/`, {
-        headers: { Authorization: `Token ${getToken()}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setTicketData(data);
-        setStatus(data.status);
-      }
-    } catch (err) {
-      console.error("Failed to fetch ticket:", err);
-    } finally {
-      setLoading(false);
-    }
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+
+  const toggleGroup = (month: string) => {
+    setExpandedGroups((prev) => ({
+      ...prev,
+      [month]: !(prev[month] ?? true),
+    }));
   };
+
+  // ── useEffect — fetch everything on mount ─────────────────────────────────
+  useEffect(() => {
+    if (ticketId) {
+      dispatch(fetchTicketById(ticketId)); // ✅ Redux
+      fetchOwners();
+      fetchCompanies();
+      fetchDeals();
+      fetchActivities();
+    }
+    return () => {
+      dispatch(clearSelectedTicket()); // cleanup on unmount
+    };
+  }, [ticketId]);
+
+  // ── Sync status when ticketData loads from Redux ──────────────────────────
+  useEffect(() => {
+    if (ticketData?.status) {
+      setStatus(ticketData.status);
+    }
+  }, [ticketData]);
 
   // ── Fetch Users ───────────────────────────────────────────────────────────
   const fetchOwners = async () => {
@@ -175,7 +203,6 @@ const TicketViewPage = () => {
   };
 
   // ── Fetch Activities ──────────────────────────────────────────────────────
-
   const fetchActivities = async () => {
     try {
       setActivityLoading(true);
@@ -250,45 +277,30 @@ const TicketViewPage = () => {
     }
   };
 
-  useEffect(() => {
-    if (ticketId) {
-      fetchTicket();
-      fetchOwners();
-      fetchCompanies();
-      fetchDeals();
-      fetchActivities();
-    }
-  }, [ticketId]);
-
   // ── Open Edit Drawer ──────────────────────────────────────────────────────
   const handleEditOpen = () => {
     const matchedOwner = owners.find((o) => o.name === ticketData.owner_name);
-    const matchedCompany = companies.find(
-      (c) => c.company_name === ticketData.company_name,
-    );
-    // const matchedDeal    = deals.find((d) => d.deal_name === ticketData.deal_name);
-    const rawDeal = ticketData.associated_deal;
+    const rawDeal = ticketData?.associated_deal;
     let dealId = "";
-    if (rawDeal) {
-      if (typeof rawDeal === "object") {
-        dealId = String(rawDeal.id); // ← extract ID from nested object
-      } else {
-        // fallback: match by deal_name string
-        const matchedDeal = deals.find(
-          (d) => d.deal_name === ticketData.deal_name,
-        );
-        dealId = matchedDeal ? String(matchedDeal.id) : "";
-      }
+    // if (rawDeal) {
+    //   dealId = typeof rawDeal === "object"
+    //     ? String(rawDeal.id)
+    //     : String(deals.find((d) => d.deal_name === ticketData.deal_name)?.id || "");
+    // }
+    if (rawDeal?.id) {
+      dealId = String(rawDeal.id);
+    } else if (ticketData?.deal_name) {
+      dealId = String(
+        deals.find((d) => d.deal_name === ticketData.deal_name)?.id || "",
+      );
     }
-
     setEditForm({
       ticketName: ticketData.ticket_name,
       status: ticketData.status,
       source: ticketData.source,
       priority: ticketData.priority,
       ownerId: matchedOwner ? String(matchedOwner.id) : "",
-      companyId: matchedCompany ? String(matchedCompany.id) : "",
-      dealId: dealId,
+      dealId,
     });
     setEditErrors({});
     setOpenEditDrawer(true);
@@ -306,37 +318,27 @@ const TicketViewPage = () => {
     if (Object.keys(errors).length > 0) return;
 
     try {
-      const res = await fetch(`${BASE_URL}/tickets/${ticketId}/`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Token ${getToken()}`,
-        },
-        body: JSON.stringify({
-          ticket_name: editForm.ticketName,
-          status: editForm.status,
-          source: editForm.source,
-          priority: editForm.priority,
-          ticket_owner_id: editForm.ownerId ? Number(editForm.ownerId) : null,
-          company_id: editForm.companyId ? Number(editForm.companyId) : null,
-          deal_id: editForm.dealId ? Number(editForm.dealId) : null,
+      await dispatch(
+        updateTicket({
+          // ✅ Redux
+          id: ticketId,
+          payload: {
+            ticket_name: editForm.ticketName,
+            status: editForm.status,
+            source: editForm.source,
+            priority: editForm.priority,
+            ticket_owner_id: editForm.ownerId ? Number(editForm.ownerId) : null,
+            deal_id: editForm.dealId ? Number(editForm.dealId) : null,
+          },
         }),
+      ).unwrap();
+      dispatch(fetchTicketById(ticketId)); // refresh
+      setOpenEditDrawer(false);
+      setSnackbar({
+        open: true,
+        message: "Ticket updated successfully!",
+        severity: "success",
       });
-      if (res.ok) {
-        await fetchTicket();
-        setOpenEditDrawer(false);
-        setSnackbar({
-          open: true,
-          message: "Ticket updated successfully!",
-          severity: "success",
-        });
-      } else {
-        setSnackbar({
-          open: true,
-          message: "Failed to update ticket!",
-          severity: "error",
-        });
-      }
     } catch {
       setSnackbar({
         open: true,
@@ -351,23 +353,54 @@ const TicketViewPage = () => {
     const oldStatus = status;
     setStatus(newStatus);
     try {
-      await fetch(`${BASE_URL}/tickets/${ticketId}/`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Token ${getToken()}`,
-        },
-        body: JSON.stringify({ status: newStatus }),
-      });
+      await dispatch(
+        updateTicket({
+          // ✅ Redux
+          id: ticketId,
+          payload: { status: newStatus },
+        }),
+      ).unwrap();
     } catch {
       setStatus(oldStatus);
     }
   };
 
-  const associatedLead =
-    typeof ticketData?.associated_deal === "object"
-      ? ticketData.associated_deal.associated_lead
-      : null;
+  const sendEmail = async (email: string, subject: string, message: string) => {
+    console.log("sendEmail called:", { email, subject, message });
+    try {
+      const token = localStorage.getItem("token");
+
+      const res = await fetch(`${BASE_URL}/activities/emails/`, {
+        method: "POST",
+        headers: {
+          Authorization: `Token ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          entity_type: "ticket",
+          entity_id: Number(ticketId),
+          to: email,
+          subject,
+          body: message,
+        }),
+      });
+
+         console.log("Email response status:", res.status);
+
+      if (!res.ok) {
+        console.error(await res.text());
+        return;
+      }
+
+      await fetchActivities(); // refresh
+    } catch (err) {
+      console.error("Email send error:", err);
+    }
+  };
+
+  // const associatedLead  = typeof ticketData?.associated_deal === "object" ? ticketData.associated_deal.associated_lead : null;
+  // const associatedPhone = associatedLead?.phone_number || associatedLead?.phone || "";
+  const associatedLead = ticketData?.associated_deal?.associated_lead ?? null;
 
   const associatedPhone =
     associatedLead?.phone_number || associatedLead?.phone || "";
@@ -404,68 +437,39 @@ const TicketViewPage = () => {
       minute: "2-digit",
       hour12: true,
     });
-
   const ticketActivityContent = useMemo(() => {
-    const upcomingActivities = activities.filter((a) => a.isOverdue);
     const groupedActivities = groupByMonth(activities);
 
-    const filteredUpcoming = upcomingActivities.filter(
-      (a) =>
-        a.title?.toLowerCase().includes(searchActivity.toLowerCase()) ||
-        a.assignee?.toLowerCase().includes(searchActivity.toLowerCase()) ||
-        a.type?.toLowerCase().includes(searchActivity.toLowerCase()),
-    );
+    const filterLogic = (a: any) =>
+      a.title?.toLowerCase().includes(searchActivity.toLowerCase()) ||
+      a.assignee?.toLowerCase().includes(searchActivity.toLowerCase()) ||
+      a.type?.toLowerCase().includes(searchActivity.toLowerCase());
 
-    return (
-      <Box>
-        <Typography sx={{ fontSize: 13, fontWeight: 600, mb: 1.5 }}>
-          Upcoming
-        </Typography>
-
-        {filteredUpcoming.length === 0 && activities.length === 0 ? (
-          <Typography sx={{ fontSize: 13, color: "#aaa", mb: 1.5 }}>
-            No upcoming activities.
-          </Typography>
-        ) : (
-          filteredUpcoming.map((activity) => (
-            <Box
-              key={activity.id}
+    const renderActivityRow = (activity: any) => {
+      switch (activity.type) {
+        case "Task":
+          return (
+            <Accordion
+              elevation={0}
               sx={{
-                border: "1px solid #eee",
-                borderRadius: 2,
-                p: 1.5,
-                mb: 1.5,
+                "&:before": { display: "none" },
+                bgcolor: "transparent",
               }}
             >
-              <Box
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon sx={{ fontSize: 18 }} />}
                 sx={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  mb: 1,
+                  p: 0,
+                  minHeight: 0,
+                  flexDirection: "row-reverse",
+                  "& .MuiAccordionSummary-content": {
+                    m: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                  },
                 }}
               >
-                <Typography sx={{ fontSize: 13, color: "#555" }}>
-                  <span style={{ fontWeight: 600 }}>{activity.type}</span>{" "}
-                  assigned to {activity.assignee}
-                </Typography>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                  <CalendarTodayOutlined
-                    sx={{ fontSize: 13, color: "#e53935" }}
-                  />
-                  <Typography sx={{ fontSize: 12, color: "#e53935" }}>
-                    Overdue · {activity.dueDate}
-                  </Typography>
-                </Box>
-              </Box>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                {activity.is_complete ? (
-                  <CheckCircleIcon sx={{ fontSize: 18, color: "#4caf50" }} />
-                ) : (
-                  <RadioButtonUncheckedIcon
-                    sx={{ fontSize: 18, color: "#aaa" }}
-                  />
-                )}
                 <Typography
                   sx={{
                     fontSize: 13,
@@ -477,29 +481,77 @@ const TicketViewPage = () => {
                 >
                   {activity.title}
                 </Typography>
-              </Box>
-            </Box>
-          ))
-        )}
+              </AccordionSummary>
 
-        {Object.entries(groupedActivities).map(([month, items]) => {
-          const filtered = (items as any[]).filter(
-            (a) =>
-              a.title?.toLowerCase().includes(searchActivity.toLowerCase()) ||
-              a.assignee
-                ?.toLowerCase()
-                .includes(searchActivity.toLowerCase()) ||
-              a.type?.toLowerCase().includes(searchActivity.toLowerCase()),
+              <AccordionDetails sx={{ p: "8px 0 0 0" }}>
+                <Typography sx={{ fontSize: 12, color: "#777" }}>
+                  {activity.note || activity.description || "No details"}
+                </Typography>
+              </AccordionDetails>
+            </Accordion>
           );
-          if (filtered.length === 0) return null;
+
+        case "Call":
+        case "Note":
+        case "Email":
+        case "Meeting":
+          return (
+            <Accordion
+              elevation={0}
+              sx={{ "&:before": { display: "none" }, bgcolor: "transparent" }}
+            >
+              <AccordionSummary
+                expandIcon={<ExpandMoreIcon sx={{ fontSize: 18 }} />}
+                sx={{
+                  p: 0,
+                  minHeight: 0,
+                  flexDirection: "row-reverse",
+                  "& .MuiAccordionSummary-content": { m: 0 },
+                }}
+              >
+                <Typography sx={{ fontSize: 13, color: "#555" }}>
+                  {activity.title}
+                </Typography>
+              </AccordionSummary>
+
+              <AccordionDetails sx={{ p: "8px 0 0 0" }}>
+                <Typography
+                  sx={{
+                    fontSize: 12,
+                    color: "#666",
+                    bgcolor: "#f9f9f9",
+                    p: 1,
+                    borderRadius: 1,
+                  }}
+                >
+                  {activity.note || activity.description || "No details"}
+                </Typography>
+              </AccordionDetails>
+            </Accordion>
+          );
+
+        default:
+          return (
+            <Typography sx={{ fontSize: 13 }}>{activity.title}</Typography>
+          );
+      }
+    };
+
+    return (
+      <Box>
+        {Object.entries(groupedActivities).map(([month, items]) => {
+          const filtered = (items as any[]).filter(filterLogic);
+          if (!filtered.length) return null;
+
           return (
             <Box key={month}>
-              <Typography
-                sx={{ fontSize: 13, fontWeight: 600, mt: 2, mb: 1.5 }}
-              >
+              {/* Month header */}
+              <Typography sx={{ fontSize: 13, fontWeight: 600, mt: 2, mb: 1 }}>
                 {month}
               </Typography>
-              {filtered.map((activity: any) => (
+
+              {/* Activities */}
+              {filtered.map((activity) => (
                 <Box
                   key={activity.id}
                   sx={{
@@ -507,84 +559,32 @@ const TicketViewPage = () => {
                     borderRadius: 2,
                     p: 1.5,
                     mb: 1.5,
+                    bgcolor: "#fff",
                   }}
                 >
                   <Box
                     sx={{
                       display: "flex",
                       justifyContent: "space-between",
-                      alignItems: "flex-start",
+                      mb: 0.5,
                     }}
                   >
-                    <Box sx={{ flex: 1 }}>
-                      <Typography
-                        sx={{
-                          fontSize: 13,
-                          fontWeight: 600,
-                          color: activityColors[activity.type],
-                          mb: 0.5,
-                        }}
-                      >
-                        {activity.type}
-                        {activity.assignee ? ` from ${activity.assignee}` : ""}
-                      </Typography>
-                      {activity.type === "Task" ? (
-                        <Box
-                          sx={{ display: "flex", alignItems: "center", gap: 1 }}
-                        >
-                          {activity.is_complete ? (
-                            <CheckCircleIcon
-                              sx={{ fontSize: 18, color: "#4caf50" }}
-                            />
-                          ) : (
-                            <RadioButtonUncheckedIcon
-                              sx={{ fontSize: 18, color: "#aaa" }}
-                            />
-                          )}
-                          <Typography
-                            sx={{
-                              fontSize: 13,
-                              color: activity.is_complete ? "#aaa" : "#555",
-                              textDecoration: activity.is_complete
-                                ? "line-through"
-                                : "none",
-                            }}
-                          >
-                            {activity.title}
-                          </Typography>
-                          {activity.is_complete && (
-                            <Typography
-                              sx={{
-                                fontSize: 11,
-                                color: "#4caf50",
-                                fontWeight: 600,
-                                bgcolor: "#e8f5e9",
-                                px: 1,
-                                py: 0.2,
-                                borderRadius: 1,
-                              }}
-                            >
-                              Finished
-                            </Typography>
-                          )}
-                        </Box>
-                      ) : (
-                        <Typography sx={{ fontSize: 13, color: "#555" }}>
-                          {activity.title}
-                        </Typography>
-                      )}
-                    </Box>
                     <Typography
                       sx={{
-                        fontSize: 12,
-                        color: "#aaa",
-                        whiteSpace: "nowrap",
-                        ml: 2,
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: "#6c63ff",
                       }}
                     >
+                      {activity.type}
+                    </Typography>
+
+                    <Typography sx={{ fontSize: 12, color: "#aaa" }}>
                       {formatDate(activity.date)}
                     </Typography>
                   </Box>
+
+                  {renderActivityRow(activity)}
                 </Box>
               ))}
             </Box>
@@ -592,9 +592,7 @@ const TicketViewPage = () => {
         })}
 
         {activities.length === 0 && (
-          <Typography
-            sx={{ fontSize: 13, color: "#aaa", textAlign: "center", mt: 3 }}
-          >
+          <Typography sx={{ fontSize: 13, color: "#aaa", textAlign: "center", mt: 3 }}>
             No activities yet. Start by adding a note, call, task, or meeting!
           </Typography>
         )}
@@ -632,6 +630,7 @@ const TicketViewPage = () => {
       </Box>
     );
   }
+
   return (
     <Box sx={{ display: "flex", gap: 2, p: 3 }}>
       {/* ── Left Panel ── */}
@@ -660,22 +659,11 @@ const TicketViewPage = () => {
             mb: 2,
           }}
         >
-          <Avatar
-            sx={{
-              width: 56,
-              height: 56,
-              mb: 1,
-              backgroundColor: "#e8e8e8",
-              color: "#888",
-              fontSize: 20,
-            }}
-          >
-            {ticketData.ticket_name?.[0]}
-          </Avatar>
           <Typography sx={{ fontWeight: 700, fontSize: 16, color: "#1a1a2e" }}>
             {ticketData.ticket_name}
           </Typography>
         </Box>
+
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 2 }}>
           <Typography sx={{ fontSize: 13, color: "#888" }}>Status :</Typography>
           <FormControl size="small">
@@ -700,7 +688,6 @@ const TicketViewPage = () => {
           </FormControl>
         </Box>
 
-        {/* Action Buttons */}
         <Box sx={{ display: "flex", gap: 1, mb: 2, flexWrap: "wrap" }}>
           {actionButtons.map((btn) => (
             <Box
@@ -708,7 +695,9 @@ const TicketViewPage = () => {
               onClick={() => {
                 setActiveTab(btn.tabIndex);
                 if (btn.label === "Call") setOpenCallForm(true);
+                if (btn.label === "Email") setOpenEmailForm(true);
               }}
+
               sx={{
                 display: "flex",
                 flexDirection: "column",
@@ -742,7 +731,6 @@ const TicketViewPage = () => {
 
         <Divider sx={{ mb: 2 }} />
 
-        {/* About this Ticket */}
         <Box
           sx={{
             display: "flex",
@@ -767,15 +755,13 @@ const TicketViewPage = () => {
           { label: "Ticket Owner", value: ticketData.owner_name || "—" },
           { label: "Priority", value: ticketData.priority || "—" },
           { label: "Source", value: ticketData.source || "—" },
-          { label: "Company", value: ticketData.company_name || "—" },
-
+          // { label: "Deal",         value: ticketData.associated_deal ? typeof ticketData.associated_deal === "object" ? ticketData.associated_deal.deal_name : ticketData.deal_name || "—" : "—" },
           {
             label: "Deal",
-            value: ticketData.associated_deal
-              ? typeof ticketData.associated_deal === "object"
-                ? ticketData.associated_deal.deal_name
-                : ticketData.deal_name || "—"
-              : "—",
+            value:
+              ticketData?.associated_deal?.deal_name ||
+              ticketData?.deal_name ||
+              "—",
           },
           {
             label: "Created Date",
@@ -826,11 +812,11 @@ const TicketViewPage = () => {
         <ActivityPanel
           entityId={Number(ticketId)}
           entityType="ticket"
-          // entity={{ ...ticketData, name: ticketData.ticket_name }}
           entity={{
             ...ticketData,
             name: ticketData.ticket_name,
-            phone_number: associatedPhone, // ← add this
+            phone_number: associatedPhone,
+            email: associatedLead?.email || associatedLead?.email_address || "",
           }}
           activeTab={activeTab}
           onTabChange={setActiveTab}
@@ -873,7 +859,7 @@ const TicketViewPage = () => {
           </Box>
           <Typography sx={{ fontSize: 12, color: "#888", lineHeight: 1.6 }}>
             {activities.length > 0
-              ? `This ticket has ${activities.length} activities. Latest: ${activities[0]?.type} — ${activities[0]?.message}`
+              ? `This ticket has ${activities.length} activities. Latest: ${activities[0]?.type} — ${activities[0]?.title}`
               : "There are no activities associated with this ticket and further details are needed to provide a comprehensive summary."}
           </Typography>
         </Paper>
@@ -928,34 +914,7 @@ const TicketViewPage = () => {
                 sx={fieldSx}
               />
             </Grid>
-            <Grid size={{ xs: 12 }}>
-              <Typography variant="body2" sx={labelSx}>
-                Company Name
-              </Typography>
-              <FormControl fullWidth size="small">
-                <Select
-                  value={editForm.companyId}
-                  onChange={(e) =>
-                    setEditForm((p) => ({ ...p, companyId: e.target.value }))
-                  }
-                  displayEmpty
-                  sx={{
-                    borderRadius: 1.5,
-                    backgroundColor: "#fff",
-                    "& fieldset": { borderColor: "#e0e0e0" },
-                  }}
-                >
-                  <MenuItem value="">
-                    <span style={{ color: "#b0b0b0" }}>Choose Company</span>
-                  </MenuItem>
-                  {companies.map((c) => (
-                    <MenuItem key={c.id} value={String(c.id)}>
-                      {c.company_name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Grid>
+
             <Grid size={{ xs: 12 }}>
               <Typography variant="body2" sx={labelSx}>
                 Deal Name
@@ -1150,50 +1109,54 @@ const TicketViewPage = () => {
           </Button>
         </Box>
       </Drawer>
-
       {/* ── Call Form ── */}
-
       <CallForm
         open={openCallForm}
         onClose={() => setOpenCallForm(false)}
+        defaultPhone={associatedPhone}
+        defaultContact={ticketData?.ticket_name || ticketData?.company_name || ""}
         onSave={async (data) => {
           try {
             const token = localStorage.getItem("token");
-            const res = await fetch(
-              `${process.env.NEXT_PUBLIC_API_BASE_URL}/activities/calls/`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization: `Token ${token}`,
-                },
-                body: JSON.stringify({
-                  entity_type: "ticket",
-                  entity_id: ticketId,
-                  connected: data.connected,
-                  call_outcome: data.callOutcome,
-                  date: data.date,
-                  time: data.time,
-                  note: data.note,
-                }),
-              },
-            );
 
-            if (res.ok) {
-              await fetchActivities();
-            }
+            const res = await fetch(`${BASE_URL}/activities/calls/`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Token ${token}`,
+              },
+              body: JSON.stringify({
+                entity_type: "ticket",
+                entity_id: ticketId,
+                connected: data.connected,
+                call_outcome: data.callOutcome,
+                date: data.date,
+                time: data.time,
+                note: data.note,
+              }),
+            });
+
+            if (res.ok) await fetchActivities();
           } catch (err) {
             console.error("Failed to save call:", err);
           }
 
           setOpenCallForm(false);
         }}
-        defaultPhone={associatedPhone}
-        defaultContact={
-          ticketData?.ticket_name || ticketData?.company_name || ""
-        }
       />
+      {/* ── Email Form ── */}
 
+      {openEmailForm && (
+        <EmailForm
+          open={openEmailForm}
+          onClose={() => setOpenEmailForm(false)}
+          onSend={async (data) => {                             
+            await sendEmail(data.recipients, data.subject, data.body);  
+            setOpenEmailForm(false);
+          }}
+          defaultRecipient={associatedLead?.email || ""}        
+        />
+      )}
       {/* ── Toast ── */}
       <ToastNotification
         open={snackbar.open}
@@ -1201,7 +1164,7 @@ const TicketViewPage = () => {
         severity={snackbar.severity}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
       />
-    </Box>
+    </Box >
   );
 };
 

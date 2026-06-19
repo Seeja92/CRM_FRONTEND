@@ -1,7 +1,8 @@
-
 "use client";
 
 import { useState, useEffect } from "react";
+import { useDispatch, useSelector } from "react-redux";
+import { AppDispatch, RootState } from "@/store";
 import {
   Box,
   Typography,
@@ -10,17 +11,16 @@ import {
   IconButton,
   TextField,
 } from "@mui/material";
+import {
+  fetchNotes,
+  createNote,
+  updateNote,
+  Note,
+} from "@/store/slices/activitySlice"; // Adjust path setup
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
 import NoteForm from "./NoteForm";
-
-interface Note {
-  id: number;
-  content: string;
-  created_by_name: string;
-  created_at: string;
-}
 
 interface NoteListProps {
   entity: any;
@@ -28,8 +28,10 @@ interface NoteListProps {
 }
 
 export default function NoteList({ entity, entityType }: NoteListProps) {
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [loading, setLoading] = useState(true);
+  const dispatch = useDispatch<AppDispatch>();
+
+  const notes = useSelector((state: RootState) => state.activities.notes);
+  const loading = useSelector((state: RootState) => state.activities.loading);
   const [createOpen, setCreateOpen] = useState(false);
 
   // ── Edit state ──────────────────────────────────────────────────────────────
@@ -38,50 +40,23 @@ export default function NoteList({ entity, entityType }: NoteListProps) {
   const [saving, setSaving] = useState(false);
 
   // ── Fetch Notes ─────────────────────────────────────────────────────────────
-  const fetchNotes = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/activities/notes/?entity_type=${entityType}&entity_id=${entity.id}`,
-        { headers: { Authorization: `Token ${token}` } },
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setNotes(data.results || data);
-      }
-    } catch (err) {
-      console.error("Failed to fetch notes:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
-    fetchNotes();
-  }, [entity.id, entityType]);
+    dispatch(fetchNotes({ entityType, entityId: entity.id }));
+  }, [entity.id, entityType, dispatch]);
 
   // ── Create Note ─────────────────────────────────────────────────────────────
+
   const handleSave = async (content: string) => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/activities/notes/`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Token ${token}`,
-          },
-          body: JSON.stringify({
-            entity_type: entityType,
-            entity_id: entity.id,
-            content,
-          }),
-        },
-      );
-      if (res.ok) await fetchNotes();
-    } catch (err) {
-      console.error("Failed to save note:", err);
+    const resultAction = await dispatch(
+      createNote({
+        entity_type: entityType,
+        entity_id: entity.id,
+        content,
+      }),
+    );
+    if (createNote.fulfilled.match(resultAction)) {
+      dispatch(fetchNotes({ entityType, entityId: entity.id }));
     }
   };
 
@@ -99,37 +74,18 @@ export default function NoteList({ entity, entityType }: NoteListProps) {
   };
 
   // ── Save Edit (PATCH) ───────────────────────────────────────────────────────
+
   const handleUpdateNote = async (noteId: number) => {
     if (!editContent.trim()) return;
-    try {
-      setSaving(true);
-      const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_BASE_URL}/activities/notes/${noteId}/`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Token ${token}`,
-          },
-          body: JSON.stringify({ content: editContent }),
-        },
-      );
-      if (res.ok) {
-        setNotes((prev) =>
-          prev.map((n) =>
-            n.id === noteId ? { ...n, content: editContent } : n,
-          ),
-        );
-        handleEditCancel();
-      } else {
-        const err = await res.json();
-        console.error("Failed to update note:", err);
-      }
-    } catch (err) {
-      console.error("Failed to update note:", err);
-    } finally {
-      setSaving(false);
+    setSaving(true);
+
+    const resultAction = await dispatch(
+      updateNote({ id: noteId, content: editContent }),
+    );
+
+    setSaving(false);
+    if (updateNote.fulfilled.match(resultAction)) {
+      handleEditCancel();
     }
   };
 
@@ -274,9 +230,7 @@ export default function NoteList({ entity, entityType }: NoteListProps) {
               </Box>
             ) : (
               // ── Normal View ──
-              <Typography
-                sx={{ fontSize: 13, color: "#555", mt: 0.5, ml: 3 }}
-              >
+              <Typography sx={{ fontSize: 13, color: "#555", mt: 0.5, ml: 3 }}>
                 {note.content}
               </Typography>
             )}
